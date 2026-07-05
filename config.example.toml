@@ -1,0 +1,37 @@
+# PaperFlow configuration
+# Copy to ~/.paperflow/config.toml (or run `paperflow init`)
+
+[zotero]
+# Zotero data directory (contains zotero.sqlite and storage/)
+data_dir = "~/Zotero"
+# Local Zotero HTTP server (connector + Better BibTeX JSON-RPC)
+connector_url = "http://127.0.0.1:23119"
+
+[vault]
+# Obsidian vault root. REQUIRED for note creation / queue / indexing.
+dir = ""
+# Where paper notes live, relative to the vault root
+papers_subdir = "30_Resources/Papers/zotero"
+index_file = "index.md"
+log_file = "log.md"
+
+[pipeline]
+poll_interval_sec = 120
+create_notes = true
+resolve_pdfs = true
+update_index = true
+append_log = true
+dry_run = false
+
+[pdf]
+# Downloaded PDFs are stored here (PaperFlow never writes into Zotero storage/)
+dir = "~/.paperflow/pdfs"
+# Required by the Unpaywall API. Use your real email.
+unpaywall_email = ""
+daily_download_limit = 20
+request_delay_sec = 5
+download_timeout_sec = 30
+
+[app]
+state_db = "~/.paperflow/state.db"
+log_level = "INFO"

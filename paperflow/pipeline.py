@@ -1,0 +1,247 @@
+"""The core loop: detect new Zotero items -> note -> PDF -> queue -> index.
+
+Idempotent by construction:
+- existing notes are never rewritten,
+- PDFs already present (Zotero or cache) are never re-downloaded,
+- index/log are only touched when something actually changed.
+So the very first run over an already-populated library is a quiet backfill
+that simply registers everything in local state.
+"""
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
+from paperflow import analysis_queue, indexer, note_renderer, pdf_resolver
+from paperflow.config import Config
+from paperflow.state import State
+from paperflow.zotero_reader import RawItem, ZoteroReader
+
+log = logging.getLogger("paperflow.pipeline")
+
+
+@dataclass
+class RunSummary:
+    scanned: int = 0
+    new_items: int = 0
+    notes_created: int = 0
+    notes_existing: int = 0
+    pdfs_downloaded: int = 0
+    pdfs_missing: int = 0
+    analyses_detected: int = 0
+    citekey_pending: int = 0
+    deleted: int = 0
+    errors: int = 0
+    created_citekeys: List[str] = field(default_factory=list)
+    downloaded_citekeys: List[str] = field(default_factory=list)
+    detected_citekeys: List[str] = field(default_factory=list)
+
+    @property
+    def changed(self) -> bool:
+        return bool(
+            self.notes_created
+            or self.pdfs_downloaded
+            or self.analyses_detected
+            or self.deleted
+        )
+
+    def line(self) -> str:
+        return (
+            "scanned={} new={} notes+{} pdfs+{} analyses+{} pending_citekey={} "
+            "deleted={} errors={}".format(
+                self.scanned,
+                self.new_items,
+                self.notes_created,
+                self.pdfs_downloaded,
+                self.analyses_detected,
+                self.citekey_pending,
+                self.deleted,
+                self.errors,
+            )
+        )
+
+
+def _process_item(
+    item: RawItem,
+    citekey_map: Dict[str, str],
+    cfg: Config,
+    state: State,
+    summary: RunSummary,
+    is_new: bool,
+) -> None:
+    prev = state.get_item(item.item_id)
+    # --- citekey -----------------------------------------------------------
+    citekey = citekey_map.get(item.item_key) or item.extra_citekey()
+    if not citekey and prev is not None and prev["citekey"]:
+        citekey = prev["citekey"]
+    if not citekey:
+        retries = (prev["retries"] if prev is not None else 0) + 1
+        state.upsert_item(
+            item.item_id,
+            item_key=item.item_key,
+            title=item.title,
+            citekey=None,
+            note_status="pending",
+            retries=retries,
+        )
+        if retries in (1, 5) or retries % 20 == 0:
+            state.trace(
+                "citekey_pending",
+                item.item_key,
+                "no Better BibTeX citekey yet (retry {}); is Zotero+BBT running?".format(retries),
+            )
+        summary.citekey_pending += 1
+        return
+    item.citekey = citekey
+
+    # --- note ---------------------------------------------------------------
+    note_status = prev["note_status"] if prev is not None else "pending"
+    note_path: Optional[str] = prev["note_path"] if prev is not None else None
+    if cfg.create_notes and cfg.papers_dir is not None:
+        status, path = note_renderer.write_note(cfg.papers_dir, item, dry_run=cfg.dry_run)
+        note_status, note_path = status, str(path)
+        if status == "created":
+            summary.notes_created += 1
+            summary.created_citekeys.append(citekey)
+            state.trace("note_created", citekey, str(path))
+        elif status == "existing" and is_new:
+            summary.notes_existing += 1
+    elif cfg.papers_dir is None:
+        note_status = "disabled"
+
+    # --- pdf ------------------------------------------------------------------
+    pdf_status, pdf_path = pdf_resolver.resolve(item, cfg, state)
+    if pdf_status == "downloaded":
+        summary.pdfs_downloaded += 1
+        summary.downloaded_citekeys.append(citekey)
+    elif pdf_status == "missing":
+        summary.pdfs_missing += 1
+
+    state.upsert_item(
+        item.item_id,
+        item_key=item.item_key,
+        citekey=citekey,
+        title=item.title,
+        note_status=note_status,
+        note_path=note_path,
+        pdf_status=pdf_status,
+        pdf_path=pdf_path,
+        retries=0,
+        last_error=None,
+    )
+    if is_new:
+        state.trace("item_registered", citekey, "itemKey={} pdf={}".format(item.item_key, pdf_status))
+
+
+def _detect_analyses(cfg: Config, state: State, summary: RunSummary) -> None:
+    if cfg.papers_dir is None:
+        return
+    for row in state.items_awaiting_analysis():
+        hit = analysis_queue.analysis_file_for(cfg.papers_dir, row["citekey"])
+        if hit is not None:
+            state.upsert_item(row["item_id"], analysis_done=1, analysis_path=str(hit))
+            state.trace("analysis_detected", row["citekey"], hit.name)
+            summary.analyses_detected += 1
+            summary.detected_citekeys.append(row["citekey"])
+
+
+def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfill: bool) -> None:
+    if cfg.papers_dir is None:
+        return
+    # index.md progress counters (vault-scan based: the vault is the truth)
+    if cfg.update_index and cfg.index_path is not None:
+        analyzed, total = analysis_queue.progress(cfg.papers_dir)
+        if indexer.update_progress(cfg.index_path, analyzed, total, dry_run=cfg.dry_run):
+            state.trace("index_updated", cfg.index_file, "{} / {}".format(analyzed, total))
+    # log.md entry
+    if cfg.append_log and cfg.log_path is not None and summary.changed and not cfg.dry_run:
+        if backfill:
+            title = "PaperFlow 초기 등록(backfill)"
+        else:
+            title = "PaperFlow 자동 동기화"
+        parts = []
+        if summary.notes_created:
+            parts.append("노트 {}건 생성({})".format(
+                summary.notes_created, ", ".join(summary.created_citekeys[:8])
+            ))
+        if summary.pdfs_downloaded:
+            parts.append("PDF {}건 OA 확보({})".format(
+                summary.pdfs_downloaded, ", ".join(summary.downloaded_citekeys[:8])
+            ))
+        if summary.analyses_detected:
+            parts.append("분석완료 감지 {}건({})".format(
+                summary.analyses_detected, ", ".join(summary.detected_citekeys[:8])
+            ))
+        if summary.deleted:
+            parts.append("Zotero 삭제 감지 {}건(볼트는 미변경)".format(summary.deleted))
+        files = "30_Resources/Papers/zotero/ (자동), state: ~/.paperflow/state.db"
+        indexer.append_log(cfg.log_path, title, "; ".join(parts) or summary.line(), files)
+        state.trace("log_appended", cfg.log_file, summary.line())
+
+
+def run_once(cfg: Config, state: State) -> RunSummary:
+    summary = RunSummary()
+    reader = ZoteroReader(cfg.zotero_data_dir, cfg.connector_url)
+    conn = reader.snapshot()
+    try:
+        items = reader.fetch_items(conn, cfg.item_types)
+    finally:
+        conn.close()
+        reader.cleanup()
+
+    summary.scanned = len(items)
+    known = state.known_item_ids()
+    backfill = len(known) == 0 and len(items) > 20
+    retry_ids = state.retry_item_ids()
+    current_ids = set()
+    targets: List[RawItem] = []
+    new_ids = set()
+    for it in items:
+        current_ids.add(it.item_id)
+        if it.item_id not in known:
+            targets.append(it)
+            new_ids.add(it.item_id)
+        elif it.item_id in retry_ids:
+            targets.append(it)
+    summary.new_items = len(new_ids)
+
+    citekey_map: Dict[str, str] = {}
+    if targets:
+        citekey_map = reader.bbt_citekeys([t.item_key for t in targets])
+        if not citekey_map and not reader.zotero_alive():
+            log.warning("Zotero local server unreachable; citekeys unavailable this cycle")
+
+    for it in targets:
+        try:
+            _process_item(it, citekey_map, cfg, state, summary, is_new=(it.item_id in new_ids))
+        except Exception as exc:  # keep the loop alive; record everything
+            summary.errors += 1
+            log.exception("item %s failed", it.item_key)
+            state.upsert_item(
+                it.item_id,
+                item_key=it.item_key,
+                title=it.title,
+                note_status="error",
+                last_error=str(exc)[:500],
+            )
+            state.trace("item_error", it.item_key, str(exc)[:500])
+
+    # deletions (Zotero side). The vault is NEVER modified for deletions.
+    for gone in sorted(known - current_ids):
+        row = state.get_item(gone)
+        if row is not None and not row["deleted"]:
+            state.mark_deleted(gone)
+            state.trace("item_deleted_in_zotero", row["citekey"] or row["item_key"], "vault untouched")
+            summary.deleted += 1
+
+    _detect_analyses(cfg, state, summary)
+    _update_vault_records(cfg, state, summary, backfill)
+
+    state.kv_set("last_run", summary.line())
+    import datetime as _dt
+
+    state.kv_set("last_run_at", _dt.datetime.now().isoformat(timespec="seconds"))
+    if backfill:
+        state.trace("backfill", "", "registered {} existing items".format(summary.new_items))
+    return summary
