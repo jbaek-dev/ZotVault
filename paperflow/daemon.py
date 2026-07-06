@@ -75,6 +75,48 @@ def setup_logging(level: str = "INFO") -> None:
     root.handlers = [fh, sh]
 
 
+def _daily_jobs(cfg: Config, state: State) -> None:
+    """Low-frequency background work: arXiv alerts + enrichment. Never raises."""
+    import datetime as _dt
+
+    today = _dt.date.today().isoformat()
+    hour = _dt.datetime.now().hour
+    if (cfg.alerts_enabled and cfg.alerts_keywords
+            and state.kv_get("alerts_last_day") != today and hour >= cfg.alerts_hour):
+        try:
+            from paperflow import alerts
+
+            added = alerts.fetch(cfg, state)
+            state.kv_set("alerts_last_day", today)
+            if added:
+                log.info("arXiv alerts: %s new candidate(s) in inbox", added)
+        except Exception:
+            log.exception("alerts fetch failed")
+    if cfg.enrich_every_hours > 0 and (cfg.feat_citation_graph or cfg.feat_related or cfg.feat_synthesis):
+        last = state.kv_get("enrich_last_ts")
+        due = True
+        if last:
+            try:
+                last_dt = _dt.datetime.fromisoformat(last)
+                due = (_dt.datetime.now() - last_dt).total_seconds() >= cfg.enrich_every_hours * 3600
+            except ValueError:
+                due = True
+        if due:
+            try:
+                from paperflow import enrich, related, synthesis
+
+                if cfg.feat_citation_graph:
+                    enrich.run(cfg, state)
+                if cfg.feat_related:
+                    related.refresh(cfg, state)
+                    related.write_note(cfg, state)
+                if cfg.feat_synthesis:
+                    synthesis.suggest(cfg, state, write_note=True)
+                state.kv_set("enrich_last_ts", _dt.datetime.now().isoformat(timespec="seconds"))
+            except Exception:
+                log.exception("enrichment failed")
+
+
 def run(cfg: Config) -> int:
     setup_logging(cfg.log_level)
     if not acquire_lock():
@@ -85,14 +127,23 @@ def run(cfg: Config) -> int:
     state = State(cfg.state_db)
     state.trace("daemon_start", "", "poll every {}s".format(cfg.poll_interval_sec))
     log.info("PaperFlow daemon started (poll every %ss, dry_run=%s)", cfg.poll_interval_sec, cfg.dry_run)
+    web_server = None
+    if cfg.web_enabled:
+        from paperflow import webapp
+
+        web_server = webapp.start_in_thread(cfg)
     try:
         while not _stop:
             try:
-                summary = run_once(cfg, state)
+                from paperflow.webapp import RUN_LOCK
+
+                with RUN_LOCK:
+                    summary = run_once(cfg, state)
                 if summary.changed or summary.errors:
                     log.info("cycle: %s", summary.line())
                 else:
                     log.debug("cycle: %s", summary.line())
+                _daily_jobs(cfg, state)
             except Exception:
                 log.exception("pipeline cycle failed")
             # sleep in 1s slices so signals stop us promptly
@@ -101,6 +152,8 @@ def run(cfg: Config) -> int:
                     break
                 time.sleep(1)
     finally:
+        if web_server is not None:
+            web_server.shutdown()
         state.trace("daemon_stop", "", "")
         state.close()
         release_lock()

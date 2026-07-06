@@ -62,6 +62,48 @@ daily_download_limit = 20
 request_delay_sec = 5
 download_timeout_sec = 30
 
+[web]
+# Local dashboard (bound to localhost only)
+enabled = true
+host = "127.0.0.1"
+port = 8377
+
+[search]
+# Optional Semantic Scholar API key (higher rate limits)
+semantic_scholar_api_key = ""
+default_source = "arxiv"       # arxiv | s2 | crossref
+max_results = 20
+
+[proxy]
+# Institutional proxy fallback for licensed PDFs. OFF by default.
+# See docs/PROXY.md. {url} in the template is replaced with the target URL.
+enabled = false
+url_template = ""              # e.g. "https://login.ezproxy.example.edu/login?url={url}"
+cookie_file = ""               # Netscape cookies.txt exported from a logged-in browser
+daily_limit = 10
+request_delay_sec = 10
+
+[alerts]
+# Daily arXiv keyword digest -> review inbox (dashboard/CLI); nothing is added
+# to Zotero without your approval.
+enabled = false
+keywords = []                  # e.g. ["valleytronics", "Janus TMDC"]
+categories = ["cond-mat.mes-hall"]
+lookback_hours = 48
+hour = 7
+max_per_fetch = 30
+
+[ollama]
+# Local embeddings for related-paper suggestions (free, optional)
+url = "http://127.0.0.1:11434"
+embed_model = "nomic-embed-text"
+
+[features]
+citation_graph = true
+related_papers = true
+synthesis_suggestions = true
+enrich_every_hours = 24
+
 [app]
 state_db = "~/.paperflow/state.db"
 log_level = "INFO"
@@ -92,6 +134,41 @@ class Config:
     daily_download_limit: int = 20
     request_delay_sec: float = 5.0
     download_timeout_sec: int = 30
+    # web dashboard
+    web_enabled: bool = True
+    web_host: str = "127.0.0.1"
+    web_port: int = 8377
+    # zotero write path (optional translation-server for URL imports)
+    translation_server_url: str = ""
+    # institutional proxy fallback (M3) — disabled by default
+    proxy_enabled: bool = False
+    proxy_url_template: str = ""
+    proxy_cookie_file: str = ""
+    proxy_daily_limit: int = 10
+    proxy_request_delay_sec: float = 10.0
+    # search
+    s2_api_key: str = ""
+    search_default_source: str = "arxiv"
+    search_max_results: int = 20
+    # arXiv alerts
+    alerts_enabled: bool = False
+    alerts_keywords: List[str] = field(default_factory=list)
+    alerts_categories: List[str] = field(default_factory=lambda: ["cond-mat.mes-hall"])
+    alerts_lookback_hours: int = 48
+    alerts_hour: int = 7
+    alerts_max_per_fetch: int = 30
+    # local intelligence (Ollama embeddings + Semantic Scholar enrichment)
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_embed_model: str = "nomic-embed-text"
+    feat_citation_graph: bool = True
+    feat_related: bool = True
+    feat_synthesis: bool = True
+    enrich_every_hours: int = 24
+    enrich_budget_per_run: int = 40
+    embed_budget_per_run: int = 30
+    related_threshold: float = 0.75
+    synthesis_threshold: float = 0.70
+    synthesis_min_cluster: int = 4
     # app
     state_db: Path = Path("~/.paperflow/state.db").expanduser()
     log_level: str = "INFO"
@@ -241,6 +318,45 @@ def load_config(config_path: Optional[str] = None) -> Config:
     cfg.daily_download_limit = int(get("pdf", "daily_download_limit", cfg.daily_download_limit))
     cfg.request_delay_sec = float(get("pdf", "request_delay_sec", cfg.request_delay_sec))
     cfg.download_timeout_sec = int(get("pdf", "download_timeout_sec", cfg.download_timeout_sec))
+
+    cfg.web_enabled = bool(get("web", "enabled", cfg.web_enabled))
+    cfg.web_host = str(get("web", "host", cfg.web_host))
+    cfg.web_port = int(get("web", "port", cfg.web_port))
+
+    cfg.translation_server_url = str(get("zotero", "translation_server_url", "")).rstrip("/")
+
+    cfg.proxy_enabled = bool(get("proxy", "enabled", cfg.proxy_enabled))
+    cfg.proxy_url_template = str(get("proxy", "url_template", ""))
+    cfg.proxy_cookie_file = str(get("proxy", "cookie_file", ""))
+    cfg.proxy_daily_limit = int(get("proxy", "daily_limit", cfg.proxy_daily_limit))
+    cfg.proxy_request_delay_sec = float(get("proxy", "request_delay_sec", cfg.proxy_request_delay_sec))
+
+    cfg.s2_api_key = str(get("search", "semantic_scholar_api_key", ""))
+    cfg.search_default_source = str(get("search", "default_source", cfg.search_default_source))
+    cfg.search_max_results = int(get("search", "max_results", cfg.search_max_results))
+
+    cfg.alerts_enabled = bool(get("alerts", "enabled", cfg.alerts_enabled))
+    kw = get("alerts", "keywords", None)
+    if isinstance(kw, list):
+        cfg.alerts_keywords = [str(k) for k in kw]
+    cats = get("alerts", "categories", None)
+    if isinstance(cats, list) and cats:
+        cfg.alerts_categories = [str(c) for c in cats]
+    cfg.alerts_lookback_hours = int(get("alerts", "lookback_hours", cfg.alerts_lookback_hours))
+    cfg.alerts_hour = int(get("alerts", "hour", cfg.alerts_hour))
+    cfg.alerts_max_per_fetch = int(get("alerts", "max_per_fetch", cfg.alerts_max_per_fetch))
+
+    cfg.ollama_url = str(get("ollama", "url", cfg.ollama_url)).rstrip("/")
+    cfg.ollama_embed_model = str(get("ollama", "embed_model", cfg.ollama_embed_model))
+    cfg.feat_citation_graph = bool(get("features", "citation_graph", cfg.feat_citation_graph))
+    cfg.feat_related = bool(get("features", "related_papers", cfg.feat_related))
+    cfg.feat_synthesis = bool(get("features", "synthesis_suggestions", cfg.feat_synthesis))
+    cfg.enrich_every_hours = int(get("features", "enrich_every_hours", cfg.enrich_every_hours))
+    cfg.enrich_budget_per_run = int(get("features", "enrich_budget_per_run", cfg.enrich_budget_per_run))
+    cfg.embed_budget_per_run = int(get("features", "embed_budget_per_run", cfg.embed_budget_per_run))
+    cfg.related_threshold = float(get("features", "related_threshold", cfg.related_threshold))
+    cfg.synthesis_threshold = float(get("features", "synthesis_threshold", cfg.synthesis_threshold))
+    cfg.synthesis_min_cluster = int(get("features", "synthesis_min_cluster", cfg.synthesis_min_cluster))
 
     cfg.state_db = _expand(get("app", "state_db", "~/.paperflow/state.db"))
     cfg.log_level = str(get("app", "log_level", cfg.log_level)).upper()

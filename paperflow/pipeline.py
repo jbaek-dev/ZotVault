@@ -123,6 +123,8 @@ def _process_item(
         item_key=item.item_key,
         citekey=citekey,
         title=item.title,
+        doi=(item.doi or "").lower() or None,
+        arxiv_id=pdf_resolver.find_arxiv_id(item),
         note_status=note_status,
         note_path=note_path,
         pdf_status=pdf_status,
@@ -193,6 +195,19 @@ def run_once(cfg: Config, state: State) -> RunSummary:
     summary.scanned = len(items)
     known = state.known_item_ids()
     backfill = len(known) == 0 and len(items) > 20
+
+    # one-shot metadata backfill for state DBs created before v0.2 (doi/arxiv columns)
+    if known and state.kv_get("doi_backfill_done") != "1":
+        for it in items:
+            if it.item_id in known:
+                state.upsert_item(
+                    it.item_id,
+                    doi=(it.doi or "").lower() or None,
+                    arxiv_id=pdf_resolver.find_arxiv_id(it),
+                    title=it.title,
+                )
+        state.kv_set("doi_backfill_done", "1")
+        state.trace("metadata_backfill", "", "doi/arxiv refreshed for {} items".format(len(known)))
     retry_ids = state.retry_item_ids()
     current_ids = set()
     targets: List[RawItem] = []

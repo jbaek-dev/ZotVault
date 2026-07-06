@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -130,6 +131,35 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
         checks.append(("unpaywall email", False, "empty — OA lookup disabled"))
     else:
         checks.append(("unpaywall email", True, cfg.unpaywall_email))
+    # optional subsystems (informational — failures don't block the core loop)
+    if cfg.translation_server_url:
+        try:
+            import urllib.request as _ur
+
+            with _ur.urlopen(cfg.translation_server_url + "/", timeout=4) as r:
+                checks.append(("translation-server", True, cfg.translation_server_url))
+        except Exception:
+            checks.append(("translation-server", False, cfg.translation_server_url + " unreachable"))
+    if cfg.feat_related or cfg.feat_synthesis:
+        try:
+            import urllib.request as _ur
+
+            with _ur.urlopen(cfg.ollama_url + "/api/tags", timeout=4) as r:
+                ok = r.status == 200
+            checks.append(("ollama (embeddings)", ok, cfg.ollama_url))
+        except Exception:
+            checks.append(("ollama (embeddings)", False,
+                           cfg.ollama_url + " unreachable — related/synthesis suggestions off"))
+    if cfg.proxy_enabled:
+        tmpl_ok = "{url}" in cfg.proxy_url_template
+        checks.append(("proxy url_template", tmpl_ok,
+                       cfg.proxy_url_template or "empty"))
+        ck = Path(os.path.expanduser(cfg.proxy_cookie_file)) if cfg.proxy_cookie_file else None
+        checks.append(("proxy cookie file", ck is not None and ck.exists(),
+                       str(ck) if ck else "not set"))
+    if cfg.alerts_enabled:
+        checks.append(("alerts keywords", bool(cfg.alerts_keywords),
+                       ", ".join(cfg.alerts_keywords) or "empty"))
     return checks
 
 
@@ -253,6 +283,154 @@ def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow.zotero_writer import add_identifiers
+
+    state = State(cfg.state_db)
+    try:
+        results = add_identifiers(args.identifiers, cfg, state,
+                                  attach_pdf=not args.no_pdf, dry_run=args.dry_run)
+    finally:
+        state.close()
+    failures = 0
+    for r in results:
+        mark = {"added": "✅", "resolved": "🔎", "duplicate": "↩️", "error": "❌"}.get(r["status"], "•")
+        if r["status"] == "error":
+            failures += 1
+        _print("{} [{}] {} — {}".format(mark, r["status"], r.get("title") or r["identifier"],
+                                         r.get("message", "")))
+    if any(r["status"] == "added" for r in results):
+        _print()
+        _print("Zotero received the item(s); the daemon (or `paperflow run-once`) will "
+               "create notes / fetch PDFs / queue analysis.")
+    return 0 if failures == 0 else 1
+
+
+def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow.search import search
+
+    state = State(cfg.state_db)
+    try:
+        results = search(args.query, args.source or cfg.search_default_source, cfg, state,
+                         args.max)
+    finally:
+        state.close()
+    if args.json:
+        _print(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
+        return 0
+    if not results:
+        _print("no results")
+        return 0
+    for i, r in enumerate(results, 1):
+        lib = " [in library: {}]".format(r.in_library) if r.in_library else ""
+        cites = " · {} cites".format(r.citations) if r.citations is not None else ""
+        _print("{:2d}. {} ({}){}{}".format(i, r.title, r.year or "?", cites, lib))
+        _print("    {} · {}".format(r.authors[:100], r.venue))
+        if r.best_identifier:
+            _print("    id: {}".format(r.best_identifier))
+    _print()
+    _print("add with: paperflow add <doi|arxiv-id> [...]")
+    return 0
+
+
+def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow.daemon import setup_logging
+    from paperflow import webapp
+
+    setup_logging(cfg.log_level)
+    server = webapp.serve(cfg)
+    _print("PaperFlow dashboard: http://{}:{}  (Ctrl-C to stop)".format(cfg.web_host, cfg.web_port))
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def cmd_alerts(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow import alerts
+
+    state = State(cfg.state_db)
+    try:
+        if args.fetch:
+            n = alerts.fetch(cfg, state)
+            _print("{} new candidate(s) added to the inbox".format(n))
+        if args.approve:
+            res = alerts.approve(args.approve, cfg, state)
+            _print(("✅ " if res.get("ok") else "❌ ") + str(res.get("message", res)))
+        if args.dismiss:
+            state.alert_set_status(args.dismiss, "dismissed")
+            _print("dismissed #{}".format(args.dismiss))
+        rows = state.alerts_list("pending")
+        if not rows:
+            _print("inbox empty")
+        for r in rows:
+            _print("#{:<4d} {}  ({} · arXiv:{})".format(r["id"], r["title"][:90],
+                                                        r["published"], r["arxiv_id"]))
+            _print("      matched: {}".format(r["matched"]))
+    finally:
+        state.close()
+    return 0
+
+
+def cmd_enrich(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow.daemon import setup_logging
+    from paperflow import enrich, related, synthesis
+
+    setup_logging(cfg.log_level)
+    state = State(cfg.state_db)
+    try:
+        if cfg.feat_citation_graph:
+            n = enrich.run(cfg, state, limit=args.limit)
+            _print("citation graph: {} item(s) enriched".format(n))
+        if cfg.feat_related:
+            e = related.refresh(cfg, state)
+            _print("embeddings: {} refreshed".format(e))
+            if related.write_note(cfg, state):
+                _print("Related_Suggestions.md updated")
+        if cfg.feat_synthesis:
+            clusters = synthesis.suggest(cfg, state, write_note=True)
+            _print("synthesis suggestions: {} cluster(s)".format(len(clusters)))
+    finally:
+        state.close()
+    return 0
+
+
+def cmd_related(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow import related
+
+    state = State(cfg.state_db)
+    try:
+        out = related.related_for(args.citekey, cfg, state)
+    finally:
+        state.close()
+    if isinstance(out, dict) and out.get("error"):
+        _print("❌ " + out["error"])
+        return 1
+    for r in out:
+        _print("{:.3f}  {}".format(r["score"], r["citekey"]))
+    return 0
+
+
+def cmd_synthesis(cfg: Config, args: argparse.Namespace) -> int:
+    from paperflow import synthesis
+
+    state = State(cfg.state_db)
+    try:
+        clusters = synthesis.suggest(cfg, state, write_note=args.write)
+    finally:
+        state.close()
+    if not clusters:
+        _print("no clusters (run `paperflow enrich` first; needs Ollama embeddings)")
+        return 0
+    for c in clusters:
+        _print("• {} ({} papers)".format(c["label"], len(c["citekeys"])))
+        _print("  " + ", ".join(c["citekeys"]))
+    if args.write:
+        _print("\n_Synthesis_Suggestions.md updated (vault/syntheses/)")
+    return 0
+
+
 def cmd_trace(cfg: Config, args: argparse.Namespace) -> int:
     state = State(cfg.state_db)
     for row in reversed(state.recent_trace(args.limit)):
@@ -287,6 +465,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("trace", help="recent audit trail")
     sp.add_argument("--limit", type=int, default=30)
+
+    sp = sub.add_parser("add", help="add paper(s) to Zotero by DOI / arXiv id / URL")
+    sp.add_argument("identifiers", nargs="+")
+    sp.add_argument("--dry-run", action="store_true", help="resolve metadata only")
+    sp.add_argument("--no-pdf", action="store_true", help="don't attach the arXiv PDF")
+
+    sp = sub.add_parser("search", help="search arXiv / Semantic Scholar / Crossref")
+    sp.add_argument("query")
+    sp.add_argument("--source", choices=["arxiv", "s2", "crossref"])
+    sp.add_argument("--max", type=int)
+    sp.add_argument("--json", action="store_true")
+
+    sub.add_parser("web", help="run the dashboard server (foreground)")
+
+    sp = sub.add_parser("alerts", help="arXiv keyword alert inbox")
+    sp.add_argument("--fetch", action="store_true", help="fetch new candidates now")
+    sp.add_argument("--approve", type=int, metavar="ID", help="add inbox item to Zotero")
+    sp.add_argument("--dismiss", type=int, metavar="ID")
+
+    sp = sub.add_parser("enrich", help="citation graph + embeddings + suggestion notes")
+    sp.add_argument("--limit", type=int, default=None, help="max items for citation enrichment")
+
+    sp = sub.add_parser("related", help="similar papers for a citekey (local embeddings)")
+    sp.add_argument("citekey")
+
+    sp = sub.add_parser("synthesis", help="suggest synthesis clusters")
+    sp.add_argument("--write", action="store_true", help="also write _Synthesis_Suggestions.md")
     return p
 
 
@@ -306,6 +511,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         "queue": cmd_queue,
         "status": cmd_status,
         "trace": cmd_trace,
+        "add": cmd_add,
+        "search": cmd_search,
+        "web": cmd_web,
+        "alerts": cmd_alerts,
+        "enrich": cmd_enrich,
+        "related": cmd_related,
+        "synthesis": cmd_synthesis,
     }
     return handlers[args.command](cfg, args)
 

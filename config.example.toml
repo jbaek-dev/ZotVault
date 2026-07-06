@@ -32,6 +32,48 @@ daily_download_limit = 20
 request_delay_sec = 5
 download_timeout_sec = 30
 
+[web]
+# Local dashboard (bound to localhost only)
+enabled = true
+host = "127.0.0.1"
+port = 8377
+
+[search]
+# Optional Semantic Scholar API key (higher rate limits)
+semantic_scholar_api_key = ""
+default_source = "arxiv"       # arxiv | s2 | crossref
+max_results = 20
+
+[proxy]
+# Institutional proxy fallback for licensed PDFs. OFF by default.
+# See docs/PROXY.md. {url} in the template is replaced with the target URL.
+enabled = false
+url_template = ""              # e.g. "https://login.ezproxy.example.edu/login?url={url}"
+cookie_file = ""               # Netscape cookies.txt exported from a logged-in browser
+daily_limit = 10
+request_delay_sec = 10
+
+[alerts]
+# Daily arXiv keyword digest -> review inbox; nothing is added to Zotero
+# without your approval.
+enabled = false
+keywords = []                  # e.g. ["valleytronics", "Janus TMDC"]
+categories = ["cond-mat.mes-hall"]
+lookback_hours = 48
+hour = 7
+max_per_fetch = 30
+
+[ollama]
+# Local embeddings for related-paper suggestions (free, optional)
+url = "http://127.0.0.1:11434"
+embed_model = "nomic-embed-text"
+
+[features]
+citation_graph = true
+related_papers = true
+synthesis_suggestions = true
+enrich_every_hours = 24
+
 [app]
 state_db = "~/.paperflow/state.db"
 log_level = "INFO"

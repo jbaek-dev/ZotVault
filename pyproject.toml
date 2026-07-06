@@ -23,3 +23,6 @@ paperflow = "paperflow.cli:main"
 
 [tool.setuptools]
 packages = ["paperflow"]
+
+[tool.setuptools.package-data]
+paperflow = ["static/*.html"]

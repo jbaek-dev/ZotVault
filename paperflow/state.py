@@ -43,7 +43,40 @@ CREATE TABLE IF NOT EXISTS downloads (
     day   TEXT PRIMARY KEY,
     count INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS alerts (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    arxiv_id  TEXT UNIQUE,
+    title     TEXT,
+    authors   TEXT,
+    summary   TEXT,
+    published TEXT,
+    matched   TEXT,
+    status    TEXT DEFAULT 'pending',  -- pending|approved|dismissed|added|error
+    created   TEXT
+);
+CREATE TABLE IF NOT EXISTS embeddings (
+    citekey   TEXT PRIMARY KEY,
+    model     TEXT,
+    dim       INTEGER,
+    vec       BLOB,
+    src_mtime REAL,
+    updated   TEXT
+);
+CREATE TABLE IF NOT EXISTS citations (
+    citing TEXT NOT NULL,
+    cited  TEXT NOT NULL,
+    PRIMARY KEY (citing, cited)
+);
 """
+
+# Guarded column additions for DBs created by older versions.
+_MIGRATIONS = [
+    "ALTER TABLE items ADD COLUMN doi TEXT",
+    "ALTER TABLE items ADD COLUMN arxiv_id TEXT",
+    "ALTER TABLE items ADD COLUMN citation_count INTEGER",
+    "ALTER TABLE items ADD COLUMN s2_id TEXT",
+    "ALTER TABLE items ADD COLUMN enriched_at TEXT",
+]
 
 
 def _now() -> str:
@@ -62,6 +95,11 @@ class State:
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
+        for stmt in _MIGRATIONS:
+            try:
+                self.conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.commit()
 
@@ -173,6 +211,103 @@ class State:
                 "SELECT * FROM trace ORDER BY id DESC LIMIT ?", (limit,)
             )
         )
+
+    # -- identifier maps (duplicate detection, enrichment) -----------------------
+    def doi_map(self) -> Dict[str, str]:
+        """lowercased DOI -> citekey (or item_key when citekey missing)."""
+        out: Dict[str, str] = {}
+        for r in self.conn.execute(
+            "SELECT doi, citekey, item_key FROM items WHERE deleted=0 AND doi IS NOT NULL AND doi != ''"
+        ):
+            out[r["doi"].lower()] = r["citekey"] or r["item_key"]
+        return out
+
+    def arxiv_map(self) -> Dict[str, str]:
+        out: Dict[str, str] = {}
+        for r in self.conn.execute(
+            "SELECT arxiv_id, citekey, item_key FROM items "
+            "WHERE deleted=0 AND arxiv_id IS NOT NULL AND arxiv_id != ''"
+        ):
+            out[r["arxiv_id"].lower().split("v")[0]] = r["citekey"] or r["item_key"]
+        return out
+
+    def items_for_enrich(self, limit: int) -> List[sqlite3.Row]:
+        return list(
+            self.conn.execute(
+                "SELECT * FROM items WHERE deleted=0 AND citekey IS NOT NULL "
+                "AND ((doi IS NOT NULL AND doi != '') OR (arxiv_id IS NOT NULL AND arxiv_id != '')) "
+                "AND enriched_at IS NULL ORDER BY item_id LIMIT ?",
+                (limit,),
+            )
+        )
+
+    # -- alerts ------------------------------------------------------------------
+    def alert_add(self, arxiv_id: str, title: str, authors: str, summary: str,
+                  published: str, matched: str) -> bool:
+        """Insert if unseen. Returns True when newly added."""
+        try:
+            self.conn.execute(
+                "INSERT INTO alerts(arxiv_id,title,authors,summary,published,matched,created) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (arxiv_id, title, authors, summary, published, matched, _now()),
+            )
+            self.conn.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def alerts_list(self, status: Optional[str] = "pending", limit: int = 100) -> List[sqlite3.Row]:
+        if status:
+            return list(self.conn.execute(
+                "SELECT * FROM alerts WHERE status=? ORDER BY id DESC LIMIT ?", (status, limit)))
+        return list(self.conn.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT ?", (limit,)))
+
+    def alert_get(self, alert_id: int) -> Optional[sqlite3.Row]:
+        return self.conn.execute("SELECT * FROM alerts WHERE id=?", (alert_id,)).fetchone()
+
+    def alert_set_status(self, alert_id: int, status: str) -> None:
+        self.conn.execute("UPDATE alerts SET status=? WHERE id=?", (status, alert_id))
+        self.conn.commit()
+
+    def alert_seen_ids(self) -> Set[str]:
+        return {r["arxiv_id"] for r in self.conn.execute("SELECT arxiv_id FROM alerts")}
+
+    # -- embeddings ---------------------------------------------------------------
+    def emb_get(self, citekey: str) -> Optional[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM embeddings WHERE citekey=?", (citekey,)).fetchone()
+
+    def emb_set(self, citekey: str, model: str, dim: int, vec: bytes, src_mtime: float) -> None:
+        self.conn.execute(
+            "INSERT INTO embeddings(citekey,model,dim,vec,src_mtime,updated) VALUES(?,?,?,?,?,?) "
+            "ON CONFLICT(citekey) DO UPDATE SET model=excluded.model, dim=excluded.dim, "
+            "vec=excluded.vec, src_mtime=excluded.src_mtime, updated=excluded.updated",
+            (citekey, model, dim, vec, src_mtime, _now()),
+        )
+        self.conn.commit()
+
+    def emb_all(self, model: str) -> List[sqlite3.Row]:
+        return list(self.conn.execute("SELECT * FROM embeddings WHERE model=?", (model,)))
+
+    # -- citation edges (in-library, by citekey) -----------------------------------
+    def cite_replace(self, citing: str, cited_list: List[str]) -> None:
+        self.conn.execute("DELETE FROM citations WHERE citing=?", (citing,))
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO citations(citing,cited) VALUES(?,?)",
+            [(citing, c) for c in cited_list],
+        )
+        self.conn.commit()
+
+    def cite_edges(self) -> List[sqlite3.Row]:
+        return list(self.conn.execute("SELECT citing, cited FROM citations ORDER BY citing, cited"))
+
+    # -- proxy download budget (separate, stricter) ----------------------------------
+    def proxy_downloads_today(self) -> int:
+        return int(self.kv_get("proxy_dl_" + _today(), "0") or "0")
+
+    def record_proxy_download(self) -> None:
+        key = "proxy_dl_" + _today()
+        self.kv_set(key, str(int(self.kv_get(key, "0") or "0") + 1))
 
     # -- download budget -------------------------------------------------------
     def downloads_today(self) -> int:
