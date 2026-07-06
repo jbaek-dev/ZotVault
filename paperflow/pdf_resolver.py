@@ -122,6 +122,14 @@ def resolve(item: RawItem, cfg: Config, state: State) -> Tuple[str, Optional[str
             state.record_download()
             state.trace("pdf_downloaded", item.citekey, url)
             return "downloaded", str(cached)
+    # 5. licensed fallback through the institutional proxy (M3, opt-in)
+    if cfg.proxy_enabled:
+        from paperflow import proxy
+
+        saved, msg = proxy.fetch_licensed_pdf(item, cfg, state)
+        if saved:
+            return "downloaded", msg
+        state.trace("proxy_miss", item.citekey or item.item_key, msg)
     if tried:
         state.trace("pdf_not_found", item.citekey or item.item_key, "{} candidate(s) failed".format(tried))
     return "missing", None
