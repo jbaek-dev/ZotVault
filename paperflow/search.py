@@ -8,6 +8,7 @@ DOI / arXiv id already exists in the local state — so the dashboard can show
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -57,7 +58,9 @@ def _get(url: str, timeout: int = 20, headers: Optional[Dict[str, str]] = None) 
 # ---------------------------------------------------------------------------
 
 def search_arxiv(query: str, max_results: int = 20, timeout: int = 20) -> List[SearchResult]:
-    q = urllib.parse.quote('all:"{}"'.format(query) if " " in query else "all:" + query)
+    # AND-join individual terms (an exact-phrase query over 3+ words rarely matches)
+    terms = [t for t in re.split(r"\s+", query.strip()) if t]
+    q = urllib.parse.quote(" AND ".join('all:"{}"'.format(t.replace('"', "")) for t in terms))
     xml_text = _get(
         "http://export.arxiv.org/api/query?search_query={}&max_results={}&sortBy=relevance".format(
             q, max_results),
