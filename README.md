@@ -2,74 +2,84 @@
 
 **Local-first paper pipeline orchestrator between [Zotero](https://www.zotero.org/) and [Obsidian](https://obsidian.md/).**
 
-PaperFlow watches your Zotero library and, for every new paper, automatically: creates an Obsidian note (Papers_Zotero_v3-compatible), secures a PDF (open-access sources first, politely rate-limited), puts the paper on an AI-analysis queue, and keeps your vault's index/log current. The AI analysis itself is produced by your own agent workflow (e.g. Claude batch runs) — PaperFlow supplies the queue and detects completion.
+PaperFlow watches your Zotero library and, for every new paper, automatically: creates an Obsidian note, secures a PDF (open-access first, politely rate-limited), puts the paper on an AI-analysis queue, and keeps your vault's index current. Around that core loop it adds one-shot DOI/arXiv adding, paper search, a local dashboard, arXiv keyword alerts, an in-library citation graph, embedding-based related-paper suggestions, and synthesis-cluster proposals.
 
-Everything runs on your machine. No cloud accounts, no API keys required for the core loop. Zero runtime dependencies (Python ≥ 3.9 standard library only).
+Everything runs on your machine. No cloud accounts required, no API keys required for the core loop, **zero runtime dependencies** (Python ≥ 3.9 standard library only).
 
 ```
-[search]                    [collect]              [archive]            [wiki]
-arXiv / journals  ──▶  browser / DOI / CLI  ──▶  Zotero (BBT)  ──▶  Obsidian vault
-                                                     │ sqlite poll         │
-                                                     ▼                     ▼
-                                              PaperFlow daemon:  note → PDF → queue → index
+[search]                       [collect]                [archive]           [wiki]
+arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT)  ──▶  Obsidian vault
+        ▲                        │ you approve             │ sqlite poll        │
+        └── arXiv alert inbox ───┘                         ▼                    ▼
+                                            daemon: note → PDF (OA→proxy) → queue → index
+                                                     + citation graph · related · synthesis
 ```
 
-## Status
+## Features
 
-M1 (core loop) — working. Roadmap: M2 programmatic DOI add via local translation-server + web dashboard, M3 institutional-proxy PDF fallback, M4 citation graph / related-paper suggestions / arXiv alerts / synthesis proposals, M5 open-source polish.
+- **One-shot add** — `paperflow add 10.1103/PhysRevB.1.1 arXiv:2405.01234`: metadata via Crossref/DataCite/arXiv → straight into Zotero through the same local channel the browser connector uses. Duplicates are detected before saving. Optional [translation-server](https://github.com/zotero/translation-server) support for arbitrary URL imports.
+- **Automatic wiki-fication** — new Zotero items become Obsidian notes (template-compatible, atomic writes). Existing notes are **never rewritten**; your manual sections are structurally safe.
+- **PDF resolution, politely** — Zotero attachment → cache → arXiv → Unpaywall → (opt-in) institutional proxy with browser-session cookies. Sequential, delayed, daily-capped: designed to *not* get your campus blocked. See [docs/PROXY.md](docs/PROXY.md).
+- **AI-analysis queue** — PaperFlow doesn't run an LLM; it feeds yours. `paperflow queue --json` lists unanalyzed papers with readable PDF paths; when your agent (e.g. Claude batch) writes `*_analysis.md`, completion is auto-detected.
+- **Dashboard** — `paperflow web` → http://127.0.0.1:8377 : search → tick → add, queue, alerts inbox, suggestions, audit trail. Localhost only.
+- **arXiv alerts** — daily keyword digest into a review inbox. Nothing enters Zotero without your click (propose, don't execute).
+- **Citation graph** — Semantic Scholar citation counts + who-cites-whom *within your library*, regenerated into `Citation_Graph.md`.
+- **Related papers** — local [Ollama](https://ollama.com) embeddings over your analysis notes → `Related_Suggestions.md` link candidates. Free, offline.
+- **Synthesis suggestions** — clusters analyzed-but-unsynthesized papers into proposed review topics.
+- **Auditable** — every automatic action lands in a SQLite trace (`paperflow trace`).
 
 ## Requirements
 
-- macOS (launchd integration; the CLI itself is OS-agnostic)
-- Python ≥ 3.9 (no packages needed)
-- Zotero desktop with [Better BibTeX](https://retorque.re/zotero-better-bibtex/) (citekey source, queried via its local JSON-RPC)
-- An Obsidian vault where paper notes live under `<vault>/30_Resources/Papers/zotero/<citekey>/` (configurable)
+- macOS (launchd integration; CLI itself is OS-agnostic), Python ≥ 3.9
+- Zotero desktop with [Better BibTeX](https://retorque.re/zotero-better-bibtex/) (citekey source)
+- An Obsidian vault with per-paper folders (`<papers_subdir>/<citekey>/`)
+- Optional: Ollama (related papers), UIC-style web proxy access (licensed PDFs)
 
 ## Quick start
 
 ```bash
 git clone <this repo> && cd PaperFlow
-python3 -m paperflow.cli init          # writes ~/.paperflow/config.toml
-# edit ~/.paperflow/config.toml: [vault] dir, [pdf] unpaywall_email
-python3 -m paperflow.cli doctor        # health check
+python3 -m paperflow.cli init            # writes ~/.paperflow/config.toml
+# edit: [vault] dir, [pdf] unpaywall_email  (+ [alerts] keywords if you want digests)
+python3 -m paperflow.cli doctor
 python3 -m paperflow.cli run-once --dry-run
 python3 -m paperflow.cli run-once
-python3 -m paperflow.cli install-daemon   # writes launchd plist, prints launchctl commands
+python3 -m paperflow.cli install-daemon  # launchd plist; load it when ready
 ```
-
-(Or `pip3 install -e .` and use the `paperflow` command directly.)
 
 ## Commands
 
 | command | what it does |
 |---|---|
-| `init` | create `~/.paperflow/config.toml` |
-| `doctor` | check Zotero, Better BibTeX, vault paths, permissions |
-| `run-once [--dry-run]` | one pipeline cycle |
-| `daemon` | poll loop in the foreground |
-| `install-daemon` | write the launchd plist (never auto-loads it) |
-| `queue [--json]` | papers still awaiting AI analysis, with PDF paths |
-| `status` | tracked items, note/PDF states, download budget |
-| `trace [--limit N]` | audit trail of every automatic action |
+| `init` / `doctor` | config file / environment health check |
+| `run-once [--dry-run]` / `daemon` | one cycle / poll loop (+dashboard thread) |
+| `install-daemon` | write launchd plist (never auto-loads) |
+| `add <ids…> [--dry-run]` | resolve DOI/arXiv/URL → save to Zotero |
+| `search <query> [--source arxiv\|s2\|crossref]` | search with in-library marks |
+| `web` | dashboard server in the foreground |
+| `queue [--json]` | papers awaiting AI analysis |
+| `alerts [--fetch\|--approve N\|--dismiss N]` | arXiv digest inbox |
+| `enrich [--limit N]` | citation graph + embeddings + suggestion notes |
+| `related <citekey>` / `synthesis [--write]` | similarity / cluster proposals |
+| `status` / `trace [--limit N]` | state summary / audit trail |
 
 ## Design guarantees
 
-- **Read-only toward Zotero.** The library is read from a temp snapshot of `zotero.sqlite`; PaperFlow never writes to Zotero's DB or `storage/`. Downloaded PDFs go to `~/.paperflow/pdfs/`.
-- **Vault safety.** Existing notes are never rewritten (your `## My Synthesis` sections are untouchable), index.md is only patched via a strict counter regex, log.md is append-only, `--dry-run` previews everything, and there is no delete code path at all.
-- **Polite downloading.** OA sources first (arXiv, Unpaywall), sequential fetches with a delay, hard daily limit, honest User-Agent. Bulk-scraping publishers gets universities blocked; PaperFlow is deliberately slow.
-- **Auditable.** Every action lands in the `trace` table (`paperflow trace`).
-- **Nothing personal in code.** All user-specific values (paths, email, proxy) live in the config file.
+- **Read-only toward Zotero's data.** Library reads use a temp snapshot of `zotero.sqlite`; adds go through Zotero's own connector endpoint (Zotero writes its DB itself). PaperFlow never touches `storage/`; downloaded PDFs live in `~/.paperflow/pdfs/`.
+- **Vault safety.** Existing notes are never rewritten; auto-notes (`Citation_Graph.md`, `Related_Suggestions.md`, `_Synthesis_Suggestions.md`) are clearly marked and PaperFlow-owned; index.md is only patched via a strict counter regex; log.md is append-only; `--dry-run` previews; no delete code path exists.
+- **Polite networking.** OA-first, sequential fetches, delays, hard daily caps (separate, stricter cap for the proxy), honest User-Agent, backs off on HTTP 429.
+- **Nothing personal in code.** All user-specific values live in `~/.paperflow/config.toml`.
 
-## First run on an existing library
+## Agent integration
 
-The pipeline is idempotent: notes that already exist are skipped, PDFs already in Zotero are recognized, analyses already written are detected. The first run over a populated library is a quiet backfill that registers everything in local state (`~/.paperflow/state.db`) without touching your vault.
+Any agent can drive PaperFlow through the localhost API (`/api/search`, `/api/add`, `/api/queue`, `/api/status`). A ready-made tool module for the [Polaris](https://github.com/) local agent lives in the Polaris repo (`polaris/tools/paperflow_tools.py`): search results show up with in-library marks, and adding requires the user to have explicitly picked papers.
 
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v   # 47 tests, no network needed
 ```
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE). Changelog in [CHANGELOG.md](CHANGELOG.md).

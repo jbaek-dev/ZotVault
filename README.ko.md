@@ -2,44 +2,54 @@
 
 **Zotero ↔ Obsidian 사이를 자동으로 잇는 로컬 논문 파이프라인 오케스트레이터.**
 
-새 논문이 Zotero에 들어오면: Obsidian 노트 자동 생성(Papers_Zotero_v3 호환) → PDF 확보(OA 우선, 예의 바른 속도제한) → AI 분석 큐 적재 → 분석 완료 자동 감지 → vault index/log 갱신. 분석 자체는 내 에이전트 워크플로우(Claude 배치)가 담당하고, PaperFlow는 큐 공급과 완료 감지를 맡는다.
+새 논문이 Zotero에 들어오면: Obsidian 노트 자동 생성 → PDF 확보(OA 우선, 예의 바른 속도제한, 옵션으로 학교 프록시 폴백) → AI 분석 큐 적재 → 분석 완료 자동 감지 → index/log 갱신. 여기에 DOI 원샷 추가, 논문 검색, 로컬 대시보드, arXiv 키워드 알림, 인용 그래프, 임베딩 기반 관련논문 추천, synthesis 클러스터 제안까지.
 
-전부 내 컴퓨터 안에서 동작. 클라우드 계정·API키 불필요, 런타임 의존성 0 (Python ≥ 3.9 표준 라이브러리만).
+전부 내 컴퓨터 안에서. 코어 루프에 API키 불필요, 런타임 의존성 0 (Python ≥ 3.9 표준 라이브러리만).
 
 ## 일상 사용 흐름
 
-1. 평소처럼 논문을 Zotero에 추가 (브라우저 Connector 등)
+1. **수집** — 3가지 아무거나:
+   - 평소처럼 브라우저 Zotero Connector
+   - `paperflow add 10.1103/PhysRevB.1.1` 또는 대시보드에서 검색→체크→추가
+   - arXiv 알림 인박스에서 승인 클릭
 2. 데몬이 2분 내 감지 → 노트·PDF·큐 자동 처리
-3. 분석하고 싶을 때: `paperflow queue`로 목록 확인 → Cowork에서 "미분석 논문 배치 분석해줘" (기존 `prompts/analyze_paper.md` 계약 그대로)
-4. 분석노트가 생기면 PaperFlow가 자동 감지해 큐에서 제거, index.md 카운트 갱신
+3. 분석: `paperflow queue` 확인 → Cowork에서 "미분석 배치 분석" (기존 계약 그대로) → 완료 자동 감지
+4. 매일: 알림 다이제스트 + 인용그래프/관련추천/synthesis 제안 노트 자동 갱신
 
-## 설치
+## 대시보드
 
 ```bash
-cd ~/Documents/PaperFlow
-python3 -m paperflow.cli init          # ~/.paperflow/config.toml 생성
-# config.toml 편집: [vault] dir, [pdf] unpaywall_email
-python3 -m paperflow.cli doctor        # 환경 점검
-python3 -m paperflow.cli run-once --dry-run   # 미리보기
-python3 -m paperflow.cli run-once             # 실제 1회 실행
-python3 -m paperflow.cli install-daemon       # launchd 등록 파일 생성(자동 로드 안 함)
-launchctl load ~/Library/LaunchAgents/com.paperflow.daemon.plist   # 상시 가동 시작
+paperflow web   # → http://127.0.0.1:8377 (localhost 전용)
 ```
 
-## 안전 보장
-
-- **Zotero에는 읽기 전용.** zotero.sqlite는 임시 복사본으로만 읽고, DB·storage/에 절대 쓰지 않음. 받은 PDF는 `~/.paperflow/pdfs/`에 저장.
-- **Vault 보호.** 기존 노트는 절대 덮어쓰지 않음(`## My Synthesis` 완전 보존). index.md는 진척 카운터만 정규식으로 정밀 수정, log.md는 append만, 삭제 코드 경로 자체가 없음.
-- **다운로드 예절.** OA 우선(arXiv·Unpaywall), 순차+지연, 일일 한도(기본 20). 대량 긁기로 학교 IP가 차단당하는 사고 방지를 위해 일부러 느리게 설계.
-- **감사 가능.** 모든 자동 행동이 trace에 기록 (`paperflow trace`).
+검색→추가, 분석 큐, arXiv 인박스, synthesis 제안, 감사 로그 한 화면.
 
 ## 명령어
 
-`init` 설정 생성 · `doctor` 점검 · `run-once [--dry-run]` 1회 실행 · `daemon` 상시 폴링 · `install-daemon` launchd 등록 · `queue [--json]` 미분석 목록 · `status` 상태 요약 · `trace` 감사 로그.
+| 명령 | 기능 |
+|---|---|
+| `init` / `doctor` | 설정 생성 / 환경 점검 |
+| `run-once [--dry-run]` / `daemon` | 1회 실행 / 상시 폴링(+대시보드) |
+| `add <id…>` | DOI/arXiv 원샷 추가 (중복 자동 감지) |
+| `search <검색어> [--source arxiv\|s2\|crossref]` | 검색 (보유 논문 표시) |
+| `queue` / `status` / `trace` | 분석 대기 / 상태 / 감사 로그 |
+| `alerts [--fetch\|--approve N]` | arXiv 알림 인박스 |
+| `enrich` / `related <citekey>` / `synthesis` | 인용그래프·관련추천·클러스터 |
+| `install-daemon` | launchd 등록 파일 생성 (자동 로드 안 함) |
 
-## 로드맵
+## 안전 보장
 
-- **M2**: 로컬 translation-server 통합(DOI 하나로 Zotero 추가) + 웹 대시보드(검색→체크→추가)
-- **M3**: UIC 프록시 폴백(라이선스 논문 자동 확보)
-- **M4**: 인용그래프 · 관련논문 추천(로컬 임베딩) · arXiv 키워드 알림 · synthesis 자동 제안
-- **M5**: Polaris 연동 + 오픈소스 공개 정리
+- Zotero DB·storage에 절대 쓰지 않음 (추가는 Zotero 공식 connector 채널로, Zotero가 스스로 기록)
+- 기존 노트 불가침 (`## My Synthesis` 보존), 자동 생성 노트는 AUTO 표시 + PaperFlow 소유분만 재생성, 삭제 코드 경로 없음
+- 다운로드 예절: OA 우선, 순차+지연+일일한도, 프록시는 더 엄격한 별도 한도 — 학교 IP 차단 방지 설계
+- 프록시 인증: 비밀번호 자동화 없음. 브라우저에서 로그인한 세션 쿠키(cookies.txt) 재사용 (Duo 호환). 설정법 `docs/PROXY.md`
+- 모든 자동 행동 trace 기록
+
+## Polaris 연동
+
+Polaris 레포의 `polaris/tools/paperflow_tools.py`가 자동 등록됨:
+텔레그램에서 "valleytronics 최신 논문 찾아줘" → 검색 결과(보유 표시 포함) → "1, 3번 추가해" → Zotero 추가 → 데몬이 나머지 처리.
+
+## 설치·테스트
+
+README.md(영문) Quick start 참조. 테스트: `python3 -m unittest discover -s tests` (47개, 네트워크 불필요).
