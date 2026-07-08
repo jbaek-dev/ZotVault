@@ -26,11 +26,17 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("zotvault.tray")
 
-try:  # optional extra — keep the core zero-dependency
+try:  # optional extra — keep the core zero-dependency.
+    # NOT just ImportError: pystray probes a GUI backend at import time and
+    # raises backend-specific errors on headless systems (e.g. Xlib
+    # DisplayNameError when $DISPLAY is unset on Linux).
     import pystray
     from PIL import Image, ImageDraw
-except ImportError:  # pragma: no cover
+except Exception as _exc:  # pragma: no cover
     pystray = None
+    _IMPORT_ERROR = _exc
+else:
+    _IMPORT_ERROR = None
 
 
 def _icon_image():
@@ -45,8 +51,12 @@ def _icon_image():
 
 def main(cfg: "Config") -> int:
     if pystray is None:
-        print("tray needs the optional extra:  pip install 'zotvault[tray]'")
-        print("(the daemon itself runs fine without it: `zotvault daemon`)")
+        if isinstance(_IMPORT_ERROR, ImportError):
+            print("tray needs the optional extra:  pip install '.[tray]'  (from the repo)")
+        else:
+            print("tray backend unavailable on this system: {}".format(_IMPORT_ERROR))
+            print("(headless server? no tray is possible — use `zotvault daemon`)")
+        print("the daemon itself runs fine without a tray: `zotvault daemon`")
         return 1
 
     from zotvault import daemon

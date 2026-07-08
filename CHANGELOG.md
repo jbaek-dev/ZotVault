@@ -12,8 +12,7 @@
   triage. A small Ollama model scores inbox candidates 0-10 under a strict
   JSON contract (constrained decoding + schema validation + one retry);
   dashboard sorts by score. Purely advisory, off by default.
-- **System tray** (`zotvault tray`, optional extra `pip install
-  "zotvault[tray]"`): daemon + tray icon with Open Dashboard / Run now /
+- **System tray** (`zotvault tray`, optional extra `pip install ".[tray]"`): daemon + tray icon with Open Dashboard / Run now /
   Pause / Quit — the Syncthing pattern. Core stays zero-dependency (extras
   are the only third-party imports, enforced by the CI stdlib guard).
 - **Windows**: console-encoding crash fix (emoji on cp949/cp1252),

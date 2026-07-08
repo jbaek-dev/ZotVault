@@ -28,6 +28,6 @@ jobs:
           python-version: "3.12"
       - run: pipx install ruff || pip install ruff
       - name: Ruff
-        run: ruff check zotvault tests
+        run: ruff check zotvault tests scripts
       - name: Enforce stdlib-only (no third-party imports in zotvault/)
         run: python scripts/check_stdlib_only.py

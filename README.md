@@ -51,7 +51,7 @@ zotvault run-once
 
 **Run it continuously.** Two options on every platform:
 
-- **System tray** (recommended): `pip install "zotvault[tray]"` then `zotvault tray` — daemon + tray icon with Open Dashboard / Run now / Pause / Quit. The only third-party packages ZotVault can use, and only if you opt in.
+- **System tray** (recommended): `pip install ".[tray]"` then `zotvault tray` — daemon + tray icon with Open Dashboard / Run now / Pause / Quit. The only third-party packages ZotVault can use, and only if you opt in.
 - **OS service:** `zotvault install-daemon` — macOS writes a launchd plist, Linux writes a systemd user unit, Windows prints the Task Scheduler command. Never auto-loads; it tells you the enable command.
 
 macOS extra: double-click ZotVault.app (`bash scripts/build_app.sh`).
@@ -65,7 +65,7 @@ Every command also works without installing, via `python3 -m zotvault.cli <cmd>`
 | `init` / `doctor` | config file / environment health check |
 | `run-once [--dry-run]` / `daemon` | one cycle / poll loop (+dashboard thread) |
 | `install-daemon` | autostart: launchd plist (macOS) / systemd unit (Linux) / schtasks cmd (Windows) |
-| `tray` | daemon + system-tray icon (needs `pip install "zotvault[tray]"`) |
+| `tray` | daemon + system-tray icon (needs `pip install ".[tray]"`) |
 | `add <ids…> [--dry-run]` | resolve DOI/arXiv/URL → save to Zotero |
 | `search <query> [--source arxiv\|s2\|crossref]` | search with in-library marks |
 | `web` | dashboard server in the foreground |
@@ -85,7 +85,7 @@ Every command also works without installing, via `python3 -m zotvault.cli <cmd>`
 
 ## Agent integration
 
-Any agent can drive ZotVault through the localhost API (`/api/search`, `/api/add`, `/api/queue`, `/api/status`). A ready-made tool module for the [Polaris](https://github.com/) local agent lives in the Polaris repo (`polaris/tools/zotvault_tools.py`): search results show up with in-library marks, and adding requires the user to have explicitly picked papers.
+Any agent can drive ZotVault through the localhost API (`/api/search`, `/api/add`, `/api/queue`, `/api/status`). A ready-made tool module for the Polaris local agent (not yet public) lives in that repo (`polaris/tools/zotvault_tools.py`): search results show up with in-library marks, and adding requires the user to have explicitly picked papers.
 
 ## Tests
 

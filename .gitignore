@@ -16,3 +16,4 @@ venv/
 *.sqlite-journal
 *.log
 .pytest_cache/
+*.db
