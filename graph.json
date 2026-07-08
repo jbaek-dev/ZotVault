@@ -23,7 +23,20 @@
   "config": {
     "path": "~/.zotvault/config.toml (override: $ZOTVAULT_CONFIG; env overrides ZOTVAULT_*)",
     "loader": "zotvault/config.py (tomllib on 3.11+, built-in mini parser on 3.9)",
-    "sections": ["zotero", "vault", "pipeline", "pdf", "web", "search", "proxy", "alerts", "ollama", "features", "app"],
+    "sections": [
+      "zotero",
+      "vault",
+      "pipeline",
+      "pdf",
+      "web",
+      "search",
+      "proxy",
+      "alerts",
+      "ollama",
+      "features",
+      "analysis",
+      "app"
+    ],
     "rule": "NOTHING user-specific is hardcoded in the package; personal values live only in this file."
   },
   "data_stores": {
@@ -53,35 +66,217 @@
     }
   },
   "modules": [
-    {"file": "zotvault/config.py", "purpose": "defaults + TOML + env config loading", "key": ["Config", "load_config", "parse_toml_mini", "CONFIG_TEMPLATE"]},
-    {"file": "zotvault/state.py", "purpose": "sqlite state + audit trace + budgets + migrations", "key": ["State", "_MIGRATIONS"]},
-    {"file": "zotvault/zotero_reader.py", "purpose": "READ-ONLY Zotero: sqlite snapshot copy, items/fields/creators/pdf paths, Better BibTeX JSON-RPC citekeys, Extra-field fallback", "key": ["ZoteroReader", "RawItem"]},
-    {"file": "zotvault/zotero_writer.py", "purpose": "add items: identifier classification, Crossref/DataCite/arXiv resolvers, optional translation-server, POST /connector/saveItems, duplicate detection", "key": ["classify_identifier", "resolve_doi", "resolve_arxiv", "parse_arxiv_atom", "save_items_to_zotero", "add_identifiers"]},
-    {"file": "zotvault/note_renderer.py", "purpose": "Papers_Zotero_v3-compatible note creation; atomic write; skip-if-exists", "key": ["render_note", "write_note"]},
-    {"file": "zotvault/pdf_resolver.py", "purpose": "PDF chain: zotero attachment -> cache -> arXiv -> Unpaywall -> proxy(M3); budgets+delays", "key": ["resolve", "find_arxiv_id", "unpaywall_pdf_urls", "download_pdf"]},
-    {"file": "zotvault/proxy.py", "purpose": "opt-in licensed fallback: EZproxy {url} template + browser cookies.txt session, citation_pdf_url heuristic, strict budget", "key": ["fetch_licensed_pdf", "proxied_url", "extract_pdf_url", "load_cookiejar"]},
-    {"file": "zotvault/analysis_queue.py", "purpose": "which citekey folders lack *_analysis.md; completion detection source", "key": ["scan", "pending", "progress", "analysis_file_for"]},
-    {"file": "zotvault/indexer.py", "purpose": "vault index.md counter patch (strict regex) + log.md append", "key": ["update_progress", "append_log", "PROGRESS_RE"]},
-    {"file": "zotvault/pipeline.py", "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records", "key": ["run_once", "RunSummary", "_process_item"]},
-    {"file": "zotvault/daemon.py", "purpose": "poll loop, pid lock, signals, rotating logs, web thread, daily jobs (alerts fetch, enrich/related/synthesis)", "key": ["run", "_daily_jobs", "setup_logging"]},
-    {"file": "zotvault/webapp.py", "purpose": "stdlib ThreadingHTTPServer JSON API + static dashboard; RUN_LOCK shared with daemon", "key": ["serve", "start_in_thread", "make_handler", "RUN_LOCK"]},
-    {"file": "zotvault/static/index.html", "purpose": "single-file dashboard UI (fetch-based; no framework)"},
-    {"file": "zotvault/search.py", "purpose": "arXiv/S2/Crossref search -> SearchResult, in-library annotation", "key": ["search", "search_arxiv", "search_semantic_scholar", "search_crossref", "mark_in_library"]},
-    {"file": "zotvault/alerts.py", "purpose": "arXiv keyword digest -> inbox; approve -> zotero_writer (propose-don't-execute)", "key": ["fetch", "store_entries", "approve"]},
-    {"file": "zotvault/enrich.py", "purpose": "Semantic Scholar citationCount + in-library citation edges; Citation_Graph.md regeneration", "key": ["run", "s2_fetch", "write_citation_graph_note"]},
-    {"file": "zotvault/related.py", "purpose": "Ollama embeddings over analysis notes; cosine top-k; Related_Suggestions.md", "key": ["refresh", "ollama_embed", "top_similar", "related_for", "write_note"]},
-    {"file": "zotvault/synthesis.py", "purpose": "greedy leader clustering of analyzed-but-unsynthesized papers; _Synthesis_Suggestions.md", "key": ["suggest", "leader_cluster", "covered_citekeys", "label_for"]},
-    {"file": "zotvault/cli.py", "purpose": "all commands + doctor checks + launchd plist", "key": ["main", "build_parser", "_checks"]}
+    {
+      "file": "zotvault/config.py",
+      "purpose": "defaults + TOML + env config loading",
+      "key": [
+        "Config",
+        "load_config",
+        "parse_toml_mini",
+        "CONFIG_TEMPLATE"
+      ]
+    },
+    {
+      "file": "zotvault/state.py",
+      "purpose": "sqlite state + audit trace + budgets + migrations",
+      "key": [
+        "State",
+        "_MIGRATIONS"
+      ]
+    },
+    {
+      "file": "zotvault/zotero_reader.py",
+      "purpose": "READ-ONLY Zotero: sqlite snapshot copy, items/fields/creators/pdf paths, Better BibTeX JSON-RPC citekeys, Extra-field fallback",
+      "key": [
+        "ZoteroReader",
+        "RawItem"
+      ]
+    },
+    {
+      "file": "zotvault/zotero_writer.py",
+      "purpose": "add items: identifier classification, Crossref/DataCite/arXiv resolvers, optional translation-server, POST /connector/saveItems, duplicate detection",
+      "key": [
+        "classify_identifier",
+        "resolve_doi",
+        "resolve_arxiv",
+        "parse_arxiv_atom",
+        "save_items_to_zotero",
+        "add_identifiers"
+      ]
+    },
+    {
+      "file": "zotvault/note_renderer.py",
+      "purpose": "Papers_Zotero_v3-compatible note creation; atomic write; skip-if-exists",
+      "key": [
+        "render_note",
+        "write_note"
+      ]
+    },
+    {
+      "file": "zotvault/pdf_resolver.py",
+      "purpose": "PDF chain: zotero attachment -> cache -> arXiv -> Unpaywall -> proxy(M3); budgets+delays",
+      "key": [
+        "resolve",
+        "find_arxiv_id",
+        "unpaywall_pdf_urls",
+        "download_pdf"
+      ]
+    },
+    {
+      "file": "zotvault/proxy.py",
+      "purpose": "opt-in licensed fallback: EZproxy {url} template + browser cookies.txt session, citation_pdf_url heuristic, strict budget",
+      "key": [
+        "fetch_licensed_pdf",
+        "proxied_url",
+        "extract_pdf_url",
+        "load_cookiejar"
+      ]
+    },
+    {
+      "file": "zotvault/analysis_queue.py",
+      "purpose": "which citekey folders lack *_analysis.md; completion detection source",
+      "key": [
+        "scan",
+        "pending",
+        "progress",
+        "analysis_file_for"
+      ]
+    },
+    {
+      "file": "zotvault/indexer.py",
+      "purpose": "vault index.md counter patch (strict regex) + log.md append",
+      "key": [
+        "update_progress",
+        "append_log",
+        "PROGRESS_RE"
+      ]
+    },
+    {
+      "file": "zotvault/pipeline.py",
+      "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records",
+      "key": [
+        "run_once",
+        "RunSummary",
+        "_process_item"
+      ]
+    },
+    {
+      "file": "zotvault/daemon.py",
+      "purpose": "poll loop, pid lock, signals, rotating logs, web thread, daily jobs (alerts fetch, enrich/related/synthesis)",
+      "key": [
+        "run",
+        "_daily_jobs",
+        "setup_logging"
+      ]
+    },
+    {
+      "file": "zotvault/webapp.py",
+      "purpose": "stdlib ThreadingHTTPServer JSON API + static dashboard; RUN_LOCK shared with daemon",
+      "key": [
+        "serve",
+        "start_in_thread",
+        "make_handler",
+        "RUN_LOCK"
+      ]
+    },
+    {
+      "file": "zotvault/static/index.html",
+      "purpose": "single-file dashboard UI (fetch-based; no framework)"
+    },
+    {
+      "file": "zotvault/search.py",
+      "purpose": "arXiv/S2/Crossref search -> SearchResult, in-library annotation",
+      "key": [
+        "search",
+        "search_arxiv",
+        "search_semantic_scholar",
+        "search_crossref",
+        "mark_in_library"
+      ]
+    },
+    {
+      "file": "zotvault/alerts.py",
+      "purpose": "arXiv keyword digest -> inbox; approve -> zotero_writer (propose-don't-execute)",
+      "key": [
+        "fetch",
+        "store_entries",
+        "approve"
+      ]
+    },
+    {
+      "file": "zotvault/enrich.py",
+      "purpose": "Semantic Scholar citationCount + in-library citation edges; Citation_Graph.md regeneration",
+      "key": [
+        "run",
+        "s2_fetch",
+        "write_citation_graph_note"
+      ]
+    },
+    {
+      "file": "zotvault/related.py",
+      "purpose": "Ollama embeddings over analysis notes; cosine top-k; Related_Suggestions.md",
+      "key": [
+        "refresh",
+        "ollama_embed",
+        "top_similar",
+        "related_for",
+        "write_note"
+      ]
+    },
+    {
+      "file": "zotvault/synthesis.py",
+      "purpose": "greedy leader clustering of analyzed-but-unsynthesized papers; _Synthesis_Suggestions.md",
+      "key": [
+        "suggest",
+        "leader_cluster",
+        "covered_citekeys",
+        "label_for"
+      ]
+    },
+    {
+      "file": "zotvault/cli.py",
+      "purpose": "all commands + doctor checks + launchd plist",
+      "key": [
+        "main",
+        "build_parser",
+        "_checks"
+      ]
+    },
+    {
+      "file": "zotvault/analyze.py",
+      "purpose": "pluggable AI analysis engine (v0.6): ollama/claude-cli/openai-compatible/anthropic; neutral-review prompt; pdftotext full text with abstract fallback; daily budget; never overwrites existing analyses; bg single-flight runner",
+      "key": [
+        "run_batch",
+        "run_batch_bg",
+        "analyze_one",
+        "generate",
+        "DEFAULT_PROMPT",
+        "ENGINES"
+      ]
+    }
   ],
   "http_api": {
     "base": "http://127.0.0.1:8377 (localhost only, no auth — do not expose)",
     "endpoints": [
-      "GET /", "GET /api/status", "GET /api/queue", "GET /api/search?q&source&max",
-      "POST /api/add {identifiers[],dry_run}", "POST /api/run-once",
-      "GET /api/alerts?status", "POST /api/alerts/action {id,action}",
-      "GET /api/related?citekey", "GET /api/suggestions", "POST /api/enrich", "GET /api/trace?limit"
+      "GET /",
+      "GET /api/status",
+      "GET /api/queue",
+      "GET /api/search?q&source&max",
+      "POST /api/add {identifiers[],dry_run}",
+      "POST /api/run-once",
+      "GET /api/alerts?status",
+      "POST /api/alerts/action {id,action}",
+      "GET /api/related?citekey",
+      "GET /api/suggestions",
+      "POST /api/enrich",
+      "GET /api/trace?limit",
+      "POST /api/analyze"
     ],
-    "consumers": ["dashboard UI", "Polaris tools (polaris/tools/zotvault_tools.py in the Polaris repo)", "any local agent"]
+    "consumers": [
+      "dashboard UI",
+      "Polaris tools (polaris/tools/zotvault_tools.py in the Polaris repo)",
+      "any local agent"
+    ]
   },
   "external_apis": {
     "zotero_local": "127.0.0.1:23119 — /connector/ping, /connector/saveItems (write channel), /better-bibtex/json-rpc (citekeys)",
@@ -104,11 +299,33 @@
     "every automatic action writes a trace row"
   ],
   "extension_points": [
-    {"name": "pdf source", "how": "add a candidate producer in pdf_resolver.resolve chain (respect budgets/delays)"},
-    {"name": "analysis engine automation", "how": "queue is the contract: spawn `claude -p` (or any LLM) on analysis_queue.pending items; completion is auto-detected by file appearance"},
-    {"name": "reference explorer (BACKLOG, user-floated)", "how": "given DOI/arXiv id, enrich.s2_fetch with references.title,externalIds -> list with in-library marks -> user-selected adds. Separate dashboard view; do NOT pollute the time-based alerts inbox"},
-    {"name": "dashboard section", "how": "add endpoint in webapp.py + section in static/index.html"},
-    {"name": "new agent bridge", "how": "consume the localhost API like polaris/tools/zotvault_tools.py"},
-    {"name": "search source", "how": "add search_<source>() in search.py returning SearchResult, wire into search()"}
+    {
+      "name": "pdf source",
+      "how": "add a candidate producer in pdf_resolver.resolve chain (respect budgets/delays)"
+    },
+    {
+      "name": "analysis engine automation",
+      "how": "queue is the contract: spawn `claude -p` (or any LLM) on analysis_queue.pending items; completion is auto-detected by file appearance"
+    },
+    {
+      "name": "reference explorer (BACKLOG, user-floated)",
+      "how": "given DOI/arXiv id, enrich.s2_fetch with references.title,externalIds -> list with in-library marks -> user-selected adds. Separate dashboard view; do NOT pollute the time-based alerts inbox"
+    },
+    {
+      "name": "dashboard section",
+      "how": "add endpoint in webapp.py + section in static/index.html"
+    },
+    {
+      "name": "new agent bridge",
+      "how": "consume the localhost API like polaris/tools/zotvault_tools.py"
+    },
+    {
+      "name": "search source",
+      "how": "add search_<source>() in search.py returning SearchResult, wire into search()"
+    },
+    {
+      "name": "analysis engine",
+      "how": "add _gen_<engine>() in analyze.py + branch in generate() + ENGINES tuple + doctor check"
+    }
   ]
 }
