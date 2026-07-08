@@ -113,8 +113,11 @@ exec /usr/bin/open "$URL"
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/PaperFlow"
 
-# ---- ad-hoc sign (harmless if codesign is missing) ------------------------------
-command -v codesign >/dev/null && codesign --force --deep -s - "$APP" 2>/dev/null || true
+# NOTE: intentionally NOT code-signing. An ad-hoc signature gets a fresh hash
+# on every build, which resets the app's TCC (Full Disk Access) grant. Leaving
+# the locally-built app unsigned makes macOS key the grant by bundle path +
+# identifier, so your one-time FDA grant survives future rebuilds. (No
+# Gatekeeper prompt: locally-built bundles carry no quarantine attribute.)
 
 # refresh LaunchServices registration so the new build launches cleanly
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
