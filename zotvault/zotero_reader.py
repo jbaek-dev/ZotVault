@@ -27,6 +27,19 @@ _YEAR_RE = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
 
 
 @dataclass
+class Annotation:
+    key: str                 # annotation item key
+    attachment_key: str      # parent attachment item key (for deep links)
+    type: int                # 1 hl, 2 note, 3 image, 4 ink, 5 underline, 6 text
+    text: str
+    comment: str
+    color: str
+    page_label: str
+    sort_index: str
+    date_modified: str
+
+
+@dataclass
 class RawItem:
     item_id: int
     item_key: str
@@ -190,6 +203,30 @@ class ZoteroReader:
                 if Path(apath).exists():
                     return apath
         return None
+
+    def annotations_map(self, conn: sqlite3.Connection) -> Dict[int, List[Annotation]]:
+        """All PDF annotations, grouped by top-level paper itemID (one query)."""
+        rows = conn.execute(
+            "SELECT att.parentItemID AS paper_id, attItems.key AS att_key, "
+            "annItems.key AS ann_key, ann.type, ann.text, ann.comment, ann.color, "
+            "ann.pageLabel, ann.sortIndex, annItems.dateModified "
+            "FROM itemAnnotations ann "
+            "JOIN items annItems ON ann.itemID = annItems.itemID "
+            "JOIN itemAttachments att ON ann.parentItemID = att.itemID "
+            "JOIN items attItems ON att.itemID = attItems.itemID "
+            "WHERE att.parentItemID IS NOT NULL "
+            "AND annItems.itemID NOT IN (SELECT itemID FROM deletedItems) "
+            "ORDER BY att.parentItemID, ann.sortIndex"
+        ).fetchall()
+        out: Dict[int, List[Annotation]] = {}
+        for r in rows:
+            out.setdefault(r["paper_id"], []).append(Annotation(
+                key=r["ann_key"], attachment_key=r["att_key"], type=r["type"] or 0,
+                text=r["text"] or "", comment=r["comment"] or "", color=r["color"] or "",
+                page_label=r["pageLabel"] or "", sort_index=r["sortIndex"] or "",
+                date_modified=r["dateModified"] or "",
+            ))
+        return out
 
     # -- Better BibTeX JSON-RPC -----------------------------------------------------
     def bbt_citekeys(self, item_keys: List[str], timeout: int = 10) -> Dict[str, str]:

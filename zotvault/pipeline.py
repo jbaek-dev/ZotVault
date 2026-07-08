@@ -32,12 +32,14 @@ class RunSummary:
     pdfs_downloaded: int = 0
     pdfs_missing: int = 0
     analyses_detected: int = 0
+    annotations_updated: int = 0
     citekey_pending: int = 0
     deleted: int = 0
     errors: int = 0
     created_citekeys: List[str] = field(default_factory=list)
     downloaded_citekeys: List[str] = field(default_factory=list)
     detected_citekeys: List[str] = field(default_factory=list)
+    annotated_citekeys: List[str] = field(default_factory=list)
 
     @property
     def changed(self) -> bool:
@@ -45,13 +47,14 @@ class RunSummary:
             self.notes_created
             or self.pdfs_downloaded
             or self.analyses_detected
+            or self.annotations_updated
             or self.deleted
         )
 
     def line(self) -> str:
         if self.scanned == -1:
             return "scan skipped (Zotero DB unchanged); analyses+{}".format(self.analyses_detected)
-        return (
+        base = (
             "scanned={} new={} notes+{} pdfs+{} analyses+{} pending_citekey={} "
             "deleted={} errors={}".format(
                 self.scanned,
@@ -64,6 +67,9 @@ class RunSummary:
                 self.errors,
             )
         )
+        if self.annotations_updated:
+            base += " ann+{}".format(self.annotations_updated)
+        return base
 
 
 def _process_item(
@@ -165,6 +171,49 @@ def _detect_analyses(cfg: Config, state: State, summary: RunSummary) -> None:
             summary.detected_citekeys.append(row["citekey"])
 
 
+def _sync_annotations(ann_map, cfg: Config, state: State, summary: RunSummary) -> None:
+    """Edit-safe highlight sync (v0.8): rewrite only ZotVault's marker block.
+
+    Digest-gated per paper; also clears the block when all annotations were
+    deleted in Zotero. Unmarked notes are skipped unless adopt_existing.
+    """
+    if not cfg.annotations_enabled or cfg.papers_dir is None:
+        return
+    from zotvault import annotations as ann_mod
+
+    rows = {r["item_id"]: r for r in state.all_items() if r["citekey"]}
+    touched = set(ann_map.keys()) | {
+        iid for iid, r in rows.items() if r["annotations_hash"]
+    }
+    for item_id in sorted(touched):
+        row = rows.get(item_id)
+        if row is None:
+            continue
+        anns = ann_map.get(item_id, [])
+        new_hash = ann_mod.digest(anns) if anns else ""
+        if (row["annotations_hash"] or "") == new_hash:
+            continue
+        note_path = note_renderer.note_path_for(cfg.papers_dir, row["citekey"])
+        block = ann_mod.render_block(anns, {}, cfg)
+        status = ann_mod.upsert_block(note_path, block,
+                                      cfg.annotations_adopt_existing, dry_run=cfg.dry_run)
+        if status in ("updated", "appended"):
+            if not cfg.dry_run:
+                state.upsert_item(item_id, annotations_hash=new_hash)
+            state.trace("annotations_synced", row["citekey"],
+                        "{} · {} annotation(s)".format(status, len(anns)))
+            summary.annotations_updated += 1
+            summary.annotated_citekeys.append(row["citekey"])
+        elif status == "skipped-unmarked":
+            # remember the hash so we don't retry every cycle; trace once
+            if not cfg.dry_run:
+                state.upsert_item(item_id, annotations_hash=new_hash)
+            state.trace("annotations_skipped", row["citekey"],
+                        "note has no marker block (set [annotations] adopt_existing = true to append)")
+        elif status == "unchanged" and not cfg.dry_run:
+            state.upsert_item(item_id, annotations_hash=new_hash)
+
+
 def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfill: bool) -> None:
     if cfg.papers_dir is None:
         return
@@ -186,6 +235,9 @@ def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfi
         if summary.analyses_detected:
             parts.append(t("log.analyses_detected", n=summary.analyses_detected,
                            items=", ".join(summary.detected_citekeys[:8])))
+        if summary.annotations_updated:
+            parts.append(t("log.annotations_updated", n=summary.annotations_updated,
+                           items=", ".join(summary.annotated_citekeys[:8])))
         if summary.deleted:
             parts.append(t("log.deleted_in_zotero", n=summary.deleted))
         files = t("log.files_field", papers_subdir=cfg.papers_subdir)
@@ -211,6 +263,7 @@ def run_once(cfg: Config, state: State) -> RunSummary:
     conn = reader.snapshot()
     try:
         items = reader.fetch_items(conn, cfg.item_types)
+        ann_map = reader.annotations_map(conn) if cfg.annotations_enabled else {}
     finally:
         conn.close()
         reader.cleanup()
@@ -274,6 +327,7 @@ def run_once(cfg: Config, state: State) -> RunSummary:
             summary.deleted += 1
 
     _detect_analyses(cfg, state, summary)
+    _sync_annotations(ann_map, cfg, state, summary)
     _update_vault_records(cfg, state, summary, backfill)
 
     if db_sig:

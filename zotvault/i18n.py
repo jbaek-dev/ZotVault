@@ -14,6 +14,7 @@ _EN: Dict[str, str] = {
     "log.analyses_detected": "{n} analysis file(s) detected ({items})",
     "log.deleted_in_zotero": "{n} item(s) deleted in Zotero (vault untouched)",
     "log.files_field": "{papers_subdir}/ (auto), state: ~/.zotvault/state.db",
+    "log.annotations_updated": "annotation block updated in {n} note(s) ({items})",
 }
 
 _KO: Dict[str, str] = {
@@ -24,6 +25,7 @@ _KO: Dict[str, str] = {
     "log.analyses_detected": "분석완료 감지 {n}건({items})",
     "log.deleted_in_zotero": "Zotero 삭제 감지 {n}건(볼트는 미변경)",
     "log.files_field": "{papers_subdir}/ (자동), state: ~/.zotvault/state.db",
+    "log.annotations_updated": "주석 블록 갱신 {n}건({items})",
 }
 
 _CATALOGS: Dict[str, Dict[str, str]] = {"en": _EN, "ko": _KO}

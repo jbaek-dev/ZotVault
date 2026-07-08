@@ -37,9 +37,11 @@ Zotero's *own* connector endpoint (`/connector/saveItems`), so Zotero manages
 its DB itself. Citekeys come live from Better BibTeX JSON-RPC (fallback:
 `Citation Key:` in Extra). ZotVault never touches `storage/`.
 
-**Vault contract.** A paper note is created once and never rewritten — the
-`## My Synthesis` section is structurally safe. Only three clearly-marked
-AUTO notes are regenerated wholesale. `index.md` is patched via one strict
+**Vault contract.** A paper note is created once and never rewritten outside
+ZotVault-owned marker blocks (v0.8 refinement: the annotations block between
+`zotvault:annotations` markers is app-owned and kept in sync; everything else
+in the note is untouchable — unmarked notes require `adopt_existing` opt-in).
+Only three clearly-marked AUTO notes are regenerated wholesale. `index.md` is patched via one strict
 regex; `log.md` is append-only; there is no delete path; `dry_run` short-
 circuits every write.
 

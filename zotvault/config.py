@@ -105,6 +105,14 @@ related_papers = true
 synthesis_suggestions = true
 enrich_every_hours = 24
 
+[annotations]
+# Edit-safe Zotero highlight sync. Notes created by ZotVault carry a marker
+# block that is kept in sync; notes WITHOUT markers are never touched unless
+# adopt_existing = true (appends the block once at the end).
+enabled = true
+adopt_existing = false
+include_comments = true
+
 [analysis]
 # Pluggable AI review engine. "none" = manual workflow (queue only). Others
 # generate {citekey}_*_analysis.md automatically (never overwrites existing):
@@ -185,6 +193,11 @@ class Config:
     related_threshold: float = 0.75
     synthesis_threshold: float = 0.70
     synthesis_min_cluster: int = 4
+    # annotations sync (v0.8) — edit-safe marker blocks
+    annotations_enabled: bool = True
+    annotations_adopt_existing: bool = False   # append block to unmarked notes
+    annotations_include_comments: bool = True
+    annotations_max_quote_chars: int = 600
     # analysis engine (v0.6) — pluggable AI review
     analysis_engine: str = "none"       # none|ollama|claude-cli|openai-compatible|anthropic
     analysis_model: str = ""
@@ -386,6 +399,14 @@ def load_config(config_path: Optional[str] = None) -> Config:
     cfg.related_threshold = float(get("features", "related_threshold", cfg.related_threshold))
     cfg.synthesis_threshold = float(get("features", "synthesis_threshold", cfg.synthesis_threshold))
     cfg.synthesis_min_cluster = int(get("features", "synthesis_min_cluster", cfg.synthesis_min_cluster))
+
+    cfg.annotations_enabled = bool(get("annotations", "enabled", cfg.annotations_enabled))
+    cfg.annotations_adopt_existing = bool(get("annotations", "adopt_existing",
+                                              cfg.annotations_adopt_existing))
+    cfg.annotations_include_comments = bool(get("annotations", "include_comments",
+                                                cfg.annotations_include_comments))
+    cfg.annotations_max_quote_chars = int(get("annotations", "max_quote_chars",
+                                              cfg.annotations_max_quote_chars))
 
     cfg.analysis_engine = str(get("analysis", "engine", cfg.analysis_engine)).lower()
     cfg.analysis_model = str(get("analysis", "model", ""))

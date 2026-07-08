@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.8.0 — 2026-07-08 (edit-safe annotation sync)
+
+The ecosystem's most-requested capability, on ZotVault's safety contract:
+
+- **Highlight sync**: Zotero PDF annotations render into one marker-delimited
+  block per note — grouped by highlight color (Zotero palette names/emoji),
+  with quotes, optional comments, page labels and `zotero://open-pdf` deep
+  links to the exact annotation. Deletions in Zotero clear the block; a
+  per-paper digest keeps every cycle idempotent.
+- **Edit-safe by construction**: only the text between
+  `<!-- zotvault:annotations:start/end -->` is ever rewritten. Notes without
+  markers are left byte-identical unless `[annotations] adopt_existing = true`
+  (appends the block once). New-note templates include the markers.
+- **Invariant refined**: "never rewrite an existing note" → "never touch
+  anything outside ZotVault-owned marker blocks" (docs/ARCHITECTURE.md).
+- docs/MIGRATION.md for obsidian-zotero-integration / ZotLit users.
+- 90 tests (annotation render/upsert/digest + full pipeline E2E incl.
+  user-edit preservation and deletion-clearing).
+
 ## 0.7.0 — 2026-07-08 (adoption hardening)
 
 After an adversarial review (6 hostile personas) + market research, fixed the

@@ -107,8 +107,8 @@ set_or_add() {  # key type value
 set_or_add CFBundleIdentifier string com.zotvault.launcher
 set_or_add CFBundleName string ZotVault
 set_or_add CFBundleDisplayName string ZotVault
-set_or_add CFBundleShortVersionString string 0.7.0
-set_or_add CFBundleVersion string 0.7.0
+set_or_add CFBundleShortVersionString string 0.8.0
+set_or_add CFBundleVersion string 0.8.0
 set_or_add LSUIElement bool true
 set_or_add LSMinimumSystemVersion string 11.0
 set_or_add NSDocumentsFolderUsageDescription string "ZotVault reads and writes paper notes in your Obsidian vault."

@@ -76,6 +76,7 @@ _MIGRATIONS = [
     "ALTER TABLE items ADD COLUMN citation_count INTEGER",
     "ALTER TABLE items ADD COLUMN s2_id TEXT",
     "ALTER TABLE items ADD COLUMN enriched_at TEXT",
+    "ALTER TABLE items ADD COLUMN annotations_hash TEXT",
 ]
 
 

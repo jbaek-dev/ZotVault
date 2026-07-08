@@ -53,6 +53,9 @@ tags:
 - Zotero: zotero://select/items/{item_key}
 - DOI: {doi_link}
 
+<!-- zotvault:annotations:start -->
+<!-- zotvault:annotations:end -->
+
 ## AI Analysis
 - [[{analysis_link}]]
 """

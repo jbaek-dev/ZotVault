@@ -74,6 +74,14 @@ related_papers = true
 synthesis_suggestions = true
 enrich_every_hours = 24
 
+[annotations]
+# Edit-safe Zotero highlight sync (v0.8). Notes created by ZotVault carry a
+# marker block that is kept in sync; notes WITHOUT markers are never touched
+# unless adopt_existing = true (appends the block once at the end).
+enabled = true
+adopt_existing = false
+include_comments = true
+
 [analysis]
 # Pluggable AI review engine. "none" = manual workflow (queue only). Others
 # generate {citekey}_*_analysis.md automatically (never overwrites existing):
