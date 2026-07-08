@@ -1,0 +1,13 @@
+target-version = "py39"
+line-length = 110
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # line length handled loosely
+    "UP015",  # explicit open modes are fine
+    "B008",
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E402"]

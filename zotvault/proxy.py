@@ -43,6 +43,7 @@ _META_PDF_RES = [
 
 _MIN_PDF_BYTES = 10_000
 _MAX_HTML_BYTES = 3_000_000
+_MAX_PDF_BYTES = 100 * 1024 * 1024  # 100 MB hard cap (memory-DoS guard)
 
 
 def load_cookiejar(cookie_file: str) -> http.cookiejar.MozillaCookieJar:
@@ -163,9 +164,9 @@ def fetch_licensed_pdf(item: RawItem, cfg: Config, state: State) -> Tuple[bool, 
             return False, "no citation_pdf_url on landing page"
         for target in pdf_url_candidates(pdf_url, cfg.proxy_url_template):
             with opener.open(target, timeout=cfg.download_timeout_sec) as resp:
-                data = resp.read()
+                data = resp.read(_MAX_PDF_BYTES + 1)
             time.sleep(max(0.0, cfg.proxy_request_delay_sec))
-            if _is_pdf(data):
+            if len(data) <= _MAX_PDF_BYTES and _is_pdf(data):
                 _save(dest, data)
                 state.record_proxy_download()
                 state.trace("pdf_downloaded_proxy", item.citekey, target[:200])

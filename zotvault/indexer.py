@@ -1,8 +1,10 @@
 """Vault index.md / log.md maintenance.
 
 Deliberately conservative:
-- index.md: only the `- ✅ **N / M** zotero 논문` progress counters are touched,
-  via a strict regex. If the pattern is not found, nothing is written.
+- index.md: only a progress counter is touched. Preferred marker is the
+  language-neutral `<!-- zotvault:progress N/M -->`; a legacy Korean marker is
+  still recognized so existing vaults keep working. If neither is present,
+  nothing is written.
 - log.md: append-only, one entry per run *that changed something*.
 - dry_run skips all writes.
 """
@@ -13,21 +15,30 @@ import re
 from pathlib import Path
 from typing import Optional
 
+# Language-neutral marker (recommended for new vaults). Place anywhere:
+#   <!-- zotvault:progress 12/34 -->
+SENTINEL_RE = re.compile(r"(<!--\s*zotvault:progress\s+)(\d+)(\s*/\s*)(\d+)(\s*-->)")
+# Legacy Korean marker, kept as a fallback.
 PROGRESS_RE = re.compile(r"(-\s*✅\s*\*\*)(\d+)(\s*/\s*)(\d+)(\*\*\s*zotero\s*논문)")
 
 
+def _active_re(text: str) -> "re.Pattern[str]":
+    return SENTINEL_RE if SENTINEL_RE.search(text) else PROGRESS_RE
+
+
 def update_progress(index_path: Path, analyzed: int, total: int, dry_run: bool = False) -> bool:
-    """Update the literature-review progress counters. Returns True if changed."""
+    """Update the literature-review progress counter. Returns True if changed."""
     index_path = Path(index_path)
     if not index_path.exists():
         return False
     text = index_path.read_text(encoding="utf-8")
-    m = PROGRESS_RE.search(text)
+    rx = _active_re(text)
+    m = rx.search(text)
     if not m:
         return False
     if m.group(2) == str(analyzed) and m.group(4) == str(total):
         return False
-    new_text = PROGRESS_RE.sub(
+    new_text = rx.sub(
         lambda mm: "{}{}{}{}{}".format(mm.group(1), analyzed, mm.group(3), total, mm.group(5)),
         text,
         count=1,
@@ -63,7 +74,8 @@ def current_progress(index_path: Path) -> Optional["tuple[int, int]"]:
     index_path = Path(index_path)
     if not index_path.exists():
         return None
-    m = PROGRESS_RE.search(index_path.read_text(encoding="utf-8"))
+    text = index_path.read_text(encoding="utf-8")
+    m = _active_re(text).search(text)
     if not m:
         return None
     return int(m.group(2)), int(m.group(4))

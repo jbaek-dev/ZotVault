@@ -95,6 +95,11 @@ def make_handler(cfg: Config):
         def do_GET(self) -> None:  # noqa: N802
             try:
                 r = self.route
+                # Block DNS-rebinding: only serve API reads to a local Host.
+                # The dashboard HTML itself is harmless to serve.
+                if r != "/" and not self._origin_ok():
+                    self._json({"error": "forbidden (non-local Host)"}, 403)
+                    return
                 if r == "/":
                     html = (_STATIC / "index.html").read_bytes()
                     self._send(200, html, "text/html; charset=utf-8")

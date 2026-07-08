@@ -93,6 +93,19 @@ class ZoteroReader:
         self.connector_url = connector_url.rstrip("/")
         self._tmpdir: Optional[str] = None
 
+    def db_signature(self) -> str:
+        """Cheap change token from the Zotero DB files' size+mtime (no copy).
+        Empty string if the DB is absent."""
+        parts = []
+        for suffix in ("", "-wal", "-journal"):
+            s = self.data_dir / ("zotero.sqlite" + suffix)
+            try:
+                st = s.stat()
+                parts.append("{}:{}:{}".format(suffix or "db", st.st_size, int(st.st_mtime)))
+            except OSError:
+                continue
+        return "|".join(parts)
+
     # -- snapshot ---------------------------------------------------------------
     def snapshot(self) -> sqlite3.Connection:
         src = self.data_dir / "zotero.sqlite"

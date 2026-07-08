@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 
 from zotvault import analysis_queue, indexer, note_renderer, pdf_resolver
 from zotvault.config import Config
+from zotvault.i18n import t
 from zotvault.state import State
 from zotvault.zotero_reader import RawItem, ZoteroReader
 
@@ -48,6 +49,8 @@ class RunSummary:
         )
 
     def line(self) -> str:
+        if self.scanned == -1:
+            return "scan skipped (Zotero DB unchanged); analyses+{}".format(self.analyses_detected)
         return (
             "scanned={} new={} notes+{} pdfs+{} analyses+{} pending_citekey={} "
             "deleted={} errors={}".format(
@@ -78,19 +81,23 @@ def _process_item(
         citekey = prev["citekey"]
     if not citekey:
         retries = (prev["retries"] if prev is not None else 0) + 1
+        # 'blocked' after a few tries makes the cause visible (status/dashboard)
+        # instead of an invisible perpetual 'pending'.
+        status = "blocked" if retries >= 3 else "pending"
         state.upsert_item(
             item.item_id,
             item_key=item.item_key,
             title=item.title,
             citekey=None,
-            note_status="pending",
+            note_status=status,
             retries=retries,
         )
-        if retries in (1, 5) or retries % 20 == 0:
+        if retries in (1, 3):
             state.trace(
-                "citekey_pending",
+                "citekey_blocked",
                 item.item_key,
-                "no Better BibTeX citekey yet (retry {}); is Zotero+BBT running?".format(retries),
+                "no citekey — ZotVault needs Better BibTeX (Zotero add-on) running; "
+                "see README > Requirements",
             )
         summary.citekey_pending += 1
         return
@@ -109,7 +116,7 @@ def _process_item(
     note_status = prev["note_status"] if prev is not None else "pending"
     note_path: Optional[str] = prev["note_path"] if prev is not None else None
     if cfg.create_notes and cfg.papers_dir is not None:
-        status, path = note_renderer.write_note(cfg.papers_dir, item, dry_run=cfg.dry_run)
+        status, path = note_renderer.write_note(cfg.papers_dir, item, dry_run=cfg.dry_run, cfg=cfg)
         note_status, note_path = status, str(path)
         if status == "created":
             summary.notes_created += 1
@@ -168,26 +175,20 @@ def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfi
             state.trace("index_updated", cfg.index_file, "{} / {}".format(analyzed, total))
     # log.md entry
     if cfg.append_log and cfg.log_path is not None and summary.changed and not cfg.dry_run:
-        if backfill:
-            title = "ZotVault 초기 등록(backfill)"
-        else:
-            title = "ZotVault 자동 동기화"
+        title = t("log.backfill_title") if backfill else t("log.sync_title")
         parts = []
         if summary.notes_created:
-            parts.append("노트 {}건 생성({})".format(
-                summary.notes_created, ", ".join(summary.created_citekeys[:8])
-            ))
+            parts.append(t("log.notes_created", n=summary.notes_created,
+                           items=", ".join(summary.created_citekeys[:8])))
         if summary.pdfs_downloaded:
-            parts.append("PDF {}건 OA 확보({})".format(
-                summary.pdfs_downloaded, ", ".join(summary.downloaded_citekeys[:8])
-            ))
+            parts.append(t("log.pdfs_fetched", n=summary.pdfs_downloaded,
+                           items=", ".join(summary.downloaded_citekeys[:8])))
         if summary.analyses_detected:
-            parts.append("분석완료 감지 {}건({})".format(
-                summary.analyses_detected, ", ".join(summary.detected_citekeys[:8])
-            ))
+            parts.append(t("log.analyses_detected", n=summary.analyses_detected,
+                           items=", ".join(summary.detected_citekeys[:8])))
         if summary.deleted:
-            parts.append("Zotero 삭제 감지 {}건(볼트는 미변경)".format(summary.deleted))
-        files = "30_Resources/Papers/zotero/ (자동), state: ~/.zotvault/state.db"
+            parts.append(t("log.deleted_in_zotero", n=summary.deleted))
+        files = t("log.files_field", papers_subdir=cfg.papers_subdir)
         indexer.append_log(cfg.log_path, title, "; ".join(parts) or summary.line(), files)
         state.trace("log_appended", cfg.log_file, summary.line())
 
@@ -195,6 +196,18 @@ def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfi
 def run_once(cfg: Config, state: State) -> RunSummary:
     summary = RunSummary()
     reader = ZoteroReader(cfg.zotero_data_dir, cfg.connector_url)
+
+    # Cheap skip: if the Zotero DB hasn't changed since the last cycle and there
+    # are no items still awaiting work, avoid the (potentially large) snapshot
+    # copy + full re-scan entirely. Analysis-completion detection still runs.
+    db_sig = reader.db_signature()
+    if (db_sig and state.kv_get("zotero_db_sig") == db_sig
+            and not state.retry_item_ids() and state.known_item_ids()):
+        _detect_analyses(cfg, state, summary)
+        _update_vault_records(cfg, state, summary, backfill=False)
+        summary.scanned = -1  # sentinel: skipped a full scan
+        return summary
+
     conn = reader.snapshot()
     try:
         items = reader.fetch_items(conn, cfg.item_types)
@@ -263,6 +276,8 @@ def run_once(cfg: Config, state: State) -> RunSummary:
     _detect_analyses(cfg, state, summary)
     _update_vault_records(cfg, state, summary, backfill)
 
+    if db_sig:
+        state.kv_set("zotero_db_sig", db_sig)
     state.kv_set("last_run", summary.line())
     import datetime as _dt
 

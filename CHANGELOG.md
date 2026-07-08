@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.0 — 2026-07-08 (adoption hardening)
+
+After an adversarial review (6 hostile personas) + market research, fixed the
+issues that blocked non-me users:
+
+- **i18n**: English is now the default for `log.md` wording and messages;
+  `[app] language = "ko"` restores Korean. `index.md` progress uses a
+  language-neutral `<!-- zotvault:progress N/M -->` marker (legacy Korean
+  marker still recognized).
+- **Template externalization**: the note template is minimal/neutral by
+  default and overridable via `[vault] template_file`; the analysis backlink
+  now follows the engine suffix (no more dangling `_claude_analysis` for other
+  engines).
+- **Security**: PDF text is delimited as UNTRUSTED DATA with an explicit
+  "don't obey instructions" preamble; `claude-cli` runs with tools disabled
+  and prompt on stdin (no "read this file and follow it"); analysis output is
+  length-capped; dashboard GET endpoints now enforce the local-Host guard
+  (DNS-rebind); PDF/proxy downloads are byte-capped (memory-DoS).
+- **Non-BBT clarity**: items without a Better BibTeX citekey become `blocked`
+  (not silently `pending`) with an actionable trace + doctor/status message;
+  Better BibTeX documented as required.
+- **Performance**: skip the full sqlite snapshot + rescan when the Zotero DB
+  is unchanged and nothing is pending; `busy_timeout` on state.db.
+- **Fixed broken references** to non-existent `prompts/analyze_paper.md` /
+  `scripts/find_unanalyzed_papers.sh` (CLI + dashboard + docs).
+- **Contributor infra**: GitHub Actions (unittest on 3.9–3.13 + ruff +
+  stdlib-only guard), `ruff.toml`, `docs/ANALYSIS.md`; README clone dir /
+  install / Windows-Linux run instructions fixed. 77 tests.
+
 ## 0.6.0 — 2026-07-08 (ZotVault)
 
 - **Renamed PaperFlow → ZotVault** (name collisions with papersflow.ai,

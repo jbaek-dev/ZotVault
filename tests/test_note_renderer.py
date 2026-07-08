@@ -31,11 +31,27 @@ class TestRender(unittest.TestCase):
         self.assertIn('authors: "Jong Min, Ada Lovelace"', text)
         self.assertIn('year: "2026"', text)
         self.assertIn('itemKey: "KEY123"', text)
-        self.assertIn("## 🧠 My Synthesis (DO NOT AUTO-OVERWRITE)", text)
-        self.assertIn("## 📄 Abstract\nWe test things.", text)
+        self.assertIn("## Abstract\nWe test things.", text)
         self.assertIn("https://doi.org/10.1000/test.123", text)
-        self.assertIn("[[MinLovelace2026_claude_analysis]]", text)
         self.assertIn("zotero://select/items/KEY123", text)
+        self.assertIn("zotvault_note_version: 1", text)
+
+    def test_default_backlink_is_claude(self):
+        # engine "none" defaults to the historical _claude_analysis convention
+        self.assertIn("[[MinLovelace2026_claude_analysis]]", render_note(make_item()))
+
+    def test_engine_suffix_backlink_and_template_override(self):
+        from zotvault.config import Config
+
+        cfg = Config()
+        cfg.analysis_engine = "ollama"
+        self.assertIn("[[MinLovelace2026_ollama_analysis]]", render_note(make_item(), cfg))
+        with tempfile.TemporaryDirectory() as td:
+            tf = Path(td) / "tmpl.md"
+            tf.write_text("CUSTOM {citekey} / {analysis_link}", encoding="utf-8")
+            cfg.template_file = str(tf)
+            out = render_note(make_item(), cfg)
+            self.assertTrue(out.startswith("CUSTOM MinLovelace2026 / MinLovelace2026_ollama_analysis"))
 
     def test_no_citekey_raises(self):
         item = make_item()

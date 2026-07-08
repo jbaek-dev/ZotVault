@@ -30,22 +30,26 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 
 ## Requirements
 
-- macOS (launchd integration; CLI itself is OS-agnostic), Python ≥ 3.9
-- Zotero desktop with [Better BibTeX](https://retorque.re/zotero-better-bibtex/) (citekey source)
-- An Obsidian vault with per-paper folders (`<papers_subdir>/<citekey>/`)
-- Optional: Ollama (related papers), UIC-style web proxy access (licensed PDFs)
+- Python ≥ 3.9 (CLI is cross-platform; the double-click app + `install-daemon` autostart are macOS today)
+- Zotero desktop with **[Better BibTeX](https://retorque.re/zotero-better-bibtex/)** — **required**: it is ZotVault's citekey source. Without it, items can't be named and nothing syncs (ZotVault will mark them `blocked` and tell you).
+- An Obsidian vault (any folder). ZotVault writes per-paper notes under `<papers_subdir>/<citekey>/` — configure the paths; it does not impose a vault structure.
+- Optional: `pdftotext` (poppler) for full-text AI analysis, Ollama (related papers / local analysis), an institutional web proxy for licensed PDFs.
 
 ## Quick start
 
 ```bash
-git clone <this repo> && cd ZotVault
-python3 -m zotvault.cli init            # writes ~/.zotvault/config.toml
+git clone https://github.com/jongmin01/ZotVault && cd ZotVault
+pip install .                          # or: pipx install .   /   uv tool install .
+zotvault init                          # writes ~/.zotvault/config.toml
 # edit: [vault] dir, [pdf] unpaywall_email  (+ [alerts] keywords if you want digests)
-python3 -m zotvault.cli doctor
-python3 -m zotvault.cli run-once --dry-run
-python3 -m zotvault.cli run-once
-python3 -m zotvault.cli install-daemon  # launchd plist; load it when ready
+zotvault doctor                        # verifies Zotero, Better BibTeX, vault paths
+zotvault run-once --dry-run
+zotvault run-once
 ```
+
+**Run it continuously.** macOS: `zotvault install-daemon` then `launchctl load ~/Library/LaunchAgents/com.zotvault.daemon.plist`, or double-click ZotVault.app (`bash scripts/build_app.sh`). Windows/Linux: run `zotvault daemon` under Task Scheduler / a systemd user unit (a one-command installer + tray lands in a later release).
+
+Every command also works without installing, via `python3 -m zotvault.cli <cmd>`.
 
 ## Commands
 

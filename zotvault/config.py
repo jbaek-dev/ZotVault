@@ -122,6 +122,7 @@ daily_limit = 5
 [app]
 state_db = "~/.zotvault/state.db"
 log_level = "INFO"
+language = "en"          # en | ko (affects log.md wording and messages)
 '''
 
 
@@ -198,6 +199,8 @@ class Config:
     # app
     state_db: Path = Path("~/.zotvault/state.db").expanduser()
     log_level: str = "INFO"
+    language: str = "en"           # en | ko — locale for log.md / messages
+    template_file: str = ""        # override note template (see note_renderer.DEFAULT_TEMPLATE)
     config_path: Optional[Path] = None
 
     @property
@@ -397,6 +400,10 @@ def load_config(config_path: Optional[str] = None) -> Config:
 
     cfg.state_db = _expand(get("app", "state_db", "~/.zotvault/state.db"))
     cfg.log_level = str(get("app", "log_level", cfg.log_level)).upper()
+    cfg.language = str(get("app", "language", cfg.language)).lower()
+    cfg.template_file = str(get("vault", "template_file", ""))
+    from zotvault.i18n import set_language
+    set_language(cfg.language)
 
     # Environment overrides (highest priority)
     env = os.environ

@@ -92,7 +92,7 @@ class State:
         db_path = Path(db_path)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self.db_path = db_path
-        self.conn = sqlite3.connect(str(db_path))
+        self.conn = sqlite3.connect(str(db_path), timeout=10)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(_SCHEMA)
         for stmt in _MIGRATIONS:
@@ -101,6 +101,9 @@ class State:
             except sqlite3.OperationalError:
                 pass  # column already exists
         self.conn.execute("PRAGMA journal_mode=WAL")
+        # the daemon writes while the web layer opens fresh connections per
+        # request; wait instead of erroring "database is locked".
+        self.conn.execute("PRAGMA busy_timeout=10000")
         self.conn.commit()
 
     def close(self) -> None:
@@ -126,7 +129,7 @@ class State:
     def retry_item_ids(self) -> Set[int]:
         rows = self.conn.execute(
             "SELECT item_id FROM items WHERE deleted=0 AND "
-            "(citekey IS NULL OR note_status IN ('pending','error','dry-run','disabled') "
+            "(citekey IS NULL OR note_status IN ('pending','error','dry-run','disabled','blocked') "
             " OR pdf_status IN ('pending','deferred','error','disabled'))"
         )
         return {r["item_id"] for r in rows}

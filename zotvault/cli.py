@@ -109,7 +109,9 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
                 probe_ok = resp.status == 200
         except Exception:
             probe_ok = False
-        checks.append(("Better BibTeX JSON-RPC", probe_ok, "citekey source"))
+        checks.append(("Better BibTeX (REQUIRED)", probe_ok,
+                       "citekey source — without it NOTHING syncs" if not probe_ok
+                       else "citekey source"))
     if cfg.vault_dir is None:
         checks.append(("vault dir", False, "not configured ([vault] dir)"))
     else:
@@ -278,8 +280,8 @@ def cmd_queue(cfg: Config, args: argparse.Namespace) -> int:
         pdf_mark = {"zotero": "📄", "downloaded": "📄", "cached": "📄"}.get(status, "⬜")
         _print("  {} {:40s} pdf={:10s} {}".format(pdf_mark, e.citekey, status, path or ""))
     _print()
-    _print("Analyze via Cowork/Claude using the vault contract prompts/analyze_paper.md;")
-    _print("ZotVault auto-detects the resulting *_analysis.md files.")
+    _print("Analyze with `zotvault analyze` (set [analysis] engine), or with your own")
+    _print("LLM workflow — ZotVault auto-detects the resulting *_analysis.md files.")
     return 0
 
 
@@ -303,9 +305,9 @@ def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
     _print("downloads    : {} today (limit {})".format(state.downloads_today(), cfg.daily_download_limit))
     stuck = [r for r in state.all_items() if r["citekey"] is None]
     if stuck:
-        _print("⚠ citekey pending for {} item(s): {}".format(
-            len(stuck), ", ".join(r["item_key"] for r in stuck[:10])
-        ))
+        _print("[!] {} item(s) BLOCKED with no citekey — install/enable Better BibTeX in "
+               "Zotero (see README > Requirements): {}".format(
+                   len(stuck), ", ".join(r["item_key"] for r in stuck[:10])))
     state.close()
     return 0
 

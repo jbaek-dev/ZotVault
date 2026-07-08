@@ -1,12 +1,11 @@
 """Analysis queue: which papers still lack an AI analysis note.
 
-The analysis itself is produced manually (Cowork / Claude batch, per the
-vault's prompts/analyze_paper.md contract). ZotVault only:
+The analysis itself is produced either by the built-in engine (`zotvault
+analyze`, see docs/ANALYSIS.md) or by your own LLM workflow. ZotVault only:
 - lists pending papers (with a readable PDF path when available), and
 - detects completion (a `*_analysis.md` file appearing in the citekey folder).
 
-Compatible with the existing scripts/find_unanalyzed_papers.sh convention:
-any file matching `*_analysis.md` inside the citekey folder counts.
+Convention: any file matching `*_analysis.md` in the citekey folder counts.
 """
 from __future__ import annotations
 
