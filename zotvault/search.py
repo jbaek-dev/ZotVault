@@ -117,7 +117,7 @@ def search_semantic_scholar(query: str, max_results: int = 20, api_key: str = ""
             raise RuntimeError(
                 "Semantic Scholar rate limit (shared free tier) — wait ~1 min and retry, "
                 "use source=arxiv/crossref, or set [search] semantic_scholar_api_key"
-            )
+            ) from None
         raise
     return parse_s2(data)
 

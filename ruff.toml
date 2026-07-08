@@ -2,10 +2,11 @@ target-version = "py39"
 line-length = 110
 
 [lint]
-select = ["E", "F", "W", "I", "UP", "B"]
+# Deliberately no "UP" (pyupgrade): the codebase's .format()/typing.Dict style
+# is a conscious py3.9-era choice; churning 300 call sites buys nothing.
+select = ["E", "F", "W", "I", "B"]
 ignore = [
     "E501",   # line length handled loosely
-    "UP015",  # explicit open modes are fine
     "B008",
 ]
 

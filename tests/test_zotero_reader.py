@@ -1,7 +1,7 @@
 import unittest
 
-from zotvault.zotero_reader import RawItem
 from zotvault.pdf_resolver import find_arxiv_id
+from zotvault.zotero_reader import RawItem
 
 
 def item_with(fields):

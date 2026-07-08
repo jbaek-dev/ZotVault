@@ -366,8 +366,8 @@ def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
-    from zotvault.daemon import setup_logging
     from zotvault import webapp
+    from zotvault.daemon import setup_logging
 
     setup_logging(cfg.log_level)
     try:
@@ -412,8 +412,8 @@ def cmd_alerts(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_enrich(cfg: Config, args: argparse.Namespace) -> int:
-    from zotvault.daemon import setup_logging
     from zotvault import enrich, related, synthesis
+    from zotvault.daemon import setup_logging
 
     setup_logging(cfg.log_level)
     state = State(cfg.state_db)
@@ -470,8 +470,8 @@ def cmd_synthesis(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
-    from zotvault.daemon import setup_logging
     from zotvault import analyze
+    from zotvault.daemon import setup_logging
 
     setup_logging(cfg.log_level)
     if args.dry_run:
