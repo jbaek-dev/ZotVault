@@ -121,6 +121,9 @@ def fetch_licensed_pdf(item: RawItem, cfg: Config, state: State) -> Tuple[bool, 
 
         # HTML landing page -> citation_pdf_url
         html = data.decode("utf-8", errors="replace")
+        if "not been configured for access" in html:
+            return False, ("EZproxy: this publisher is not in the library's stanza list — "
+                           "ask the library to add it (host: {})".format(landing.split("/")[2]))
         pdf_url = extract_pdf_url(html, final_url)
         if not pdf_url:
             # login redirect is the usual cause
