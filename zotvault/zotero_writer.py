@@ -9,7 +9,7 @@ Resolution paths (first available wins):
 
 Saving uses POST /connector/saveItems on Zotero's local HTTP server —
 exactly the channel the browser connector uses. Zotero desktop must be
-running; Better BibTeX assigns the citekey on arrival, and the PaperFlow
+running; Better BibTeX assigns the citekey on arrival, and the ZotVault
 daemon picks the new item up on its next cycle (note -> PDF -> queue).
 """
 from __future__ import annotations
@@ -23,9 +23,9 @@ import uuid
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
 
 _DOI_RE = re.compile(r"\b(10\.\d{4,9}/[^\s\"'<>]+)", re.I)
 _ARXIV_NEW_RE = re.compile(r"\b(\d{4}\.\d{4,5})(v\d+)?\b")
@@ -47,7 +47,7 @@ _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 
 def _ua() -> str:
-    return "PaperFlow/{} (https://github.com/paperflow; local research tool)".format(__version__)
+    return "ZotVault/{} (https://github.com/zotvault; local research tool)".format(__version__)
 
 
 def _get(url: str, timeout: int = 20, headers: Optional[Dict[str, str]] = None) -> bytes:
@@ -135,7 +135,7 @@ def parse_crossref(msg: Dict[str, Any]) -> Dict[str, Any]:
         "volume": str(msg.get("volume", "") or ""),
         "issue": str(msg.get("issue", "") or ""),
         "pages": str(msg.get("page", "") or ""),
-        "libraryCatalog": "Crossref (PaperFlow)",
+        "libraryCatalog": "Crossref (ZotVault)",
     }
     if itype in ("journalArticle", "conferencePaper"):
         item["publicationTitle"] = container[0] if container else ""
@@ -164,7 +164,7 @@ def parse_datacite(attrs: Dict[str, Any]) -> Dict[str, Any]:
         "DOI": attrs.get("doi", ""),
         "url": attrs.get("url", ""),
         "abstractNote": "",
-        "libraryCatalog": "DataCite (PaperFlow)",
+        "libraryCatalog": "DataCite (ZotVault)",
     }
 
 
@@ -221,7 +221,7 @@ def entry_to_preprint_item(entry: Dict[str, Any]) -> Dict[str, Any]:
         "abstractNote": entry.get("summary", ""),
         "repository": "arXiv",
         "archiveID": "arXiv:" + aid if aid else "",
-        "libraryCatalog": "arXiv (PaperFlow)",
+        "libraryCatalog": "arXiv (ZotVault)",
     }
 
 
@@ -272,7 +272,7 @@ def save_items_to_zotero(items: List[Dict[str, Any]], connector_url: str,
     payload = json.dumps({
         "items": items,
         "sessionID": uuid.uuid4().hex,
-        "uri": "https://paperflow.local/import",
+        "uri": "https://zotvault.local/import",
     }).encode("utf-8")
     req = urllib.request.Request(
         connector_url.rstrip("/") + "/connector/saveItems",

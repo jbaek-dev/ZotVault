@@ -1,4 +1,4 @@
-"""Local state + audit trace, stored in a single SQLite DB (~/.paperflow/state.db).
+"""Local state + audit trace, stored in a single SQLite DB (~/.zotvault/state.db).
 
 Every automatic action is recorded in `trace` so behaviour is reconstructable
 (auditable-not-opaque, inherited from the Polaris design philosophy).
@@ -307,6 +307,14 @@ class State:
 
     def record_proxy_download(self) -> None:
         key = "proxy_dl_" + _today()
+        self.kv_set(key, str(int(self.kv_get(key, "0") or "0") + 1))
+
+    # -- analysis budget (v0.6 engine) ----------------------------------------
+    def analyses_today(self) -> int:
+        return int(self.kv_get("analysis_dl_" + _today(), "0") or "0")
+
+    def record_analysis(self) -> None:
+        key = "analysis_dl_" + _today()
         self.kv_set(key, str(int(self.kv_get(key, "0") or "0") + 1))
 
     # -- download budget -------------------------------------------------------

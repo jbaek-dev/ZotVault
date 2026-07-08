@@ -1,4 +1,4 @@
-# PaperFlow Architecture
+# ZotVault Architecture
 
 > Companion to `graph.json` (machine-readable map) and `AGENTS.md` (change
 > protocol). The code is the source of truth; this explains the *why*.
@@ -7,7 +7,7 @@
 
 ```
             ┌────────────── collect ──────────────┐
- browser Connector      paperflow add / dashboard      arXiv alerts inbox
+ browser Connector      zotvault add / dashboard      arXiv alerts inbox
         │                       │  (user approves)            │ (user approves)
         └───────────────►  Zotero desktop (BBT citekeys) ◄────┘
                                 │
@@ -35,7 +35,7 @@
 temp dir and open read-only — safe while Zotero runs. Writes go through
 Zotero's *own* connector endpoint (`/connector/saveItems`), so Zotero manages
 its DB itself. Citekeys come live from Better BibTeX JSON-RPC (fallback:
-`Citation Key:` in Extra). PaperFlow never touches `storage/`.
+`Citation Key:` in Extra). ZotVault never touches `storage/`.
 
 **Vault contract.** A paper note is created once and never rewritten — the
 `## My Synthesis` section is structurally safe. Only three clearly-marked
@@ -43,7 +43,7 @@ AUTO notes are regenerated wholesale. `index.md` is patched via one strict
 regex; `log.md` is append-only; there is no delete path; `dry_run` short-
 circuits every write.
 
-**Analysis stays external.** PaperFlow feeds an LLM workflow (queue with PDF
+**Analysis stays external.** ZotVault feeds an LLM workflow (queue with PDF
 paths) and detects `*_analysis.md` appearing; it does not call an LLM itself.
 This keeps the core engine-agnostic (Claude batch today, `claude -p`
 automation tomorrow — see extension points).
@@ -63,7 +63,7 @@ container) to the code signature: unsigned apps can't hold grants, and
 modifying a signed bundle invalidates them. Therefore:
 
 - bundle: signed once, never modified afterwards;
-- code: lives in `~/.paperflow/app/paperflow` (non-TCC path), loaded via
+- code: lives in `~/.zotvault/app/zotvault` (non-TCC path), loaded via
   `PYTHONPATH`, updated by `scripts/apply_edits.sh` (rsync + daemon restart);
 - FDA: granted once to the frozen bundle, survives all code edits;
 - full rebuild (`scripts/build_app.sh`) is only for icon/launcher changes and

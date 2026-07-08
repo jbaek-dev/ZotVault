@@ -1,6 +1,6 @@
 import unittest
 
-from paperflow.zotero_writer import (
+from zotvault.zotero_writer import (
     classify_identifier,
     entry_to_preprint_item,
     parse_arxiv_atom,

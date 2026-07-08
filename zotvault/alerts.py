@@ -1,6 +1,6 @@
 """arXiv keyword alerts -> review inbox.
 
-Daily (daemon) or on demand (`paperflow alerts --fetch`): query arXiv for each
+Daily (daemon) or on demand (`zotvault alerts --fetch`): query arXiv for each
 configured keyword, keep entries newer than the lookback window that are not
 already in the library or inbox. NOTHING is added to Zotero automatically —
 approval happens in the dashboard or CLI (propose, don't execute).
@@ -14,19 +14,19 @@ import urllib.parse
 import urllib.request
 from typing import Any, Dict
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
-from paperflow.zotero_writer import parse_arxiv_atom
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
+from zotvault.zotero_writer import parse_arxiv_atom
 
-log = logging.getLogger("paperflow.alerts")
+log = logging.getLogger("zotvault.alerts")
 
 _API = "http://export.arxiv.org/api/query?search_query={q}&sortBy=submittedDate&sortOrder=descending&max_results={n}"
 
 
 def _get(url: str, timeout: int = 20) -> str:
     req = urllib.request.Request(
-        url, headers={"User-Agent": "PaperFlow/{} (alerts)".format(__version__)})
+        url, headers={"User-Agent": "ZotVault/{} (alerts)".format(__version__)})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8")
 
@@ -85,7 +85,7 @@ def store_entries(entries, keyword: str, category: str, cutoff: str,
 
 
 def approve(alert_id: int, cfg: Config, state: State) -> Dict[str, Any]:
-    from paperflow.zotero_writer import add_identifiers
+    from zotvault.zotero_writer import add_identifiers
 
     row = state.alert_get(alert_id)
     if row is None:

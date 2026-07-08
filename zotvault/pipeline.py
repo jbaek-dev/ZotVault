@@ -14,12 +14,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-from paperflow import analysis_queue, indexer, note_renderer, pdf_resolver
-from paperflow.config import Config
-from paperflow.state import State
-from paperflow.zotero_reader import RawItem, ZoteroReader
+from zotvault import analysis_queue, indexer, note_renderer, pdf_resolver
+from zotvault.config import Config
+from zotvault.state import State
+from zotvault.zotero_reader import RawItem, ZoteroReader
 
-log = logging.getLogger("paperflow.pipeline")
+log = logging.getLogger("zotvault.pipeline")
 
 
 @dataclass
@@ -169,9 +169,9 @@ def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfi
     # log.md entry
     if cfg.append_log and cfg.log_path is not None and summary.changed and not cfg.dry_run:
         if backfill:
-            title = "PaperFlow 초기 등록(backfill)"
+            title = "ZotVault 초기 등록(backfill)"
         else:
-            title = "PaperFlow 자동 동기화"
+            title = "ZotVault 자동 동기화"
         parts = []
         if summary.notes_created:
             parts.append("노트 {}건 생성({})".format(
@@ -187,7 +187,7 @@ def _update_vault_records(cfg: Config, state: State, summary: RunSummary, backfi
             ))
         if summary.deleted:
             parts.append("Zotero 삭제 감지 {}건(볼트는 미변경)".format(summary.deleted))
-        files = "30_Resources/Papers/zotero/ (자동), state: ~/.paperflow/state.db"
+        files = "30_Resources/Papers/zotero/ (자동), state: ~/.zotvault/state.db"
         indexer.append_log(cfg.log_path, title, "; ".join(parts) or summary.line(), files)
         state.trace("log_appended", cfg.log_file, summary.line())
 

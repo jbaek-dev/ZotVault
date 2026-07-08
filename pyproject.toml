@@ -3,8 +3,8 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "paperflow"
-version = "0.5.1"
+name = "zotvault"
+version = "0.6.0"
 description = "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect, note, fetch PDF, queue AI analysis, index."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -19,10 +19,10 @@ classifiers = [
 ]
 
 [project.scripts]
-paperflow = "paperflow.cli:main"
+zotvault = "zotvault.cli:main"
 
 [tool.setuptools]
-packages = ["paperflow"]
+packages = ["zotvault"]
 
 [tool.setuptools.package-data]
-paperflow = ["static/*.html"]
+zotvault = ["static/*.html"]

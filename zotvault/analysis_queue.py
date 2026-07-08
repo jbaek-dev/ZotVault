@@ -1,7 +1,7 @@
 """Analysis queue: which papers still lack an AI analysis note.
 
 The analysis itself is produced manually (Cowork / Claude batch, per the
-vault's prompts/analyze_paper.md contract). PaperFlow only:
+vault's prompts/analyze_paper.md contract). ZotVault only:
 - lists pending papers (with a readable PDF path when available), and
 - detects completion (a `*_analysis.md` file appearing in the citekey folder).
 

@@ -1,7 +1,7 @@
-"""PaperFlow command-line interface.
+"""ZotVault command-line interface.
 
 Commands:
-  init            create ~/.paperflow/config.toml from the template
+  init            create ~/.zotvault/config.toml from the template
   doctor          environment health check (Zotero, BBT, vault, paths)
   run-once        one pipeline cycle (use --dry-run to preview)
   daemon          run the poller in the foreground
@@ -21,22 +21,22 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from paperflow import __version__, analysis_queue
-from paperflow.config import CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, Config, load_config
-from paperflow.state import State
-from paperflow.zotero_reader import ZoteroReader
+from zotvault import __version__, analysis_queue
+from zotvault.config import CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, Config, load_config
+from zotvault.state import State
+from zotvault.zotero_reader import ZoteroReader
 
 PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.paperflow.daemon</string>
+    <string>com.zotvault.daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>{python}</string>
         <string>-m</string>
-        <string>paperflow.cli</string>
+        <string>zotvault.cli</string>
         <string>daemon</string>
     </array>
     <key>EnvironmentVariables</key>
@@ -52,9 +52,9 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>{home}/.paperflow/launchd.out.log</string>
+    <string>{home}/.zotvault/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>{home}/.paperflow/launchd.err.log</string>
+    <string>{home}/.zotvault/launchd.err.log</string>
 </dict>
 </plist>
 """
@@ -85,7 +85,7 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
     py_ok = sys.version_info >= (3, 9)
     checks.append(("python >= 3.9", py_ok, platform.python_version()))
     checks.append(
-        ("config file", cfg.config_path is not None, str(cfg.config_path or "missing — run `paperflow init`"))
+        ("config file", cfg.config_path is not None, str(cfg.config_path or "missing — run `zotvault init`"))
     )
     checks.append(("zotero data dir", cfg.zotero_data_dir.exists(), str(cfg.zotero_data_dir)))
     checks.append(("zotero.sqlite", cfg.zotero_sqlite.exists(), str(cfg.zotero_sqlite)))
@@ -94,7 +94,7 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
     alive = reader.zotero_alive()
     checks.append(("zotero running (connector ping)", alive, cfg.connector_url))
     if alive:
-        bbt = reader.bbt_citekeys(["__paperflow_probe__"])
+        bbt = reader.bbt_citekeys(["__zotvault_probe__"])
         # a working endpoint answers (with an empty/mapped result); failure -> {}
         probe_ok = isinstance(bbt, dict)
         try:
@@ -167,6 +167,25 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
     if cfg.alerts_enabled:
         checks.append(("alerts keywords", bool(cfg.alerts_keywords),
                        ", ".join(cfg.alerts_keywords) or "empty"))
+    if cfg.analysis_engine != "none":
+        import shutil as _sh
+
+        from zotvault import analyze as _an
+
+        checks.append(("analysis engine", cfg.analysis_engine in _an.ENGINES,
+                       _an.engine_label(cfg)))
+        checks.append(("pdftotext (full-text input)", _an.pdftotext_available(),
+                       "poppler" if _an.pdftotext_available() else "missing — falls back to abstract-only"))
+        if cfg.analysis_engine == "claude-cli":
+            checks.append(("claude CLI", _sh.which("claude") is not None, _sh.which("claude") or "not found"))
+        if cfg.analysis_engine == "ollama":
+            checks.append(("analysis model set", bool(cfg.analysis_model), cfg.analysis_model or "set [analysis] model"))
+        if cfg.analysis_engine == "openai-compatible":
+            checks.append(("analysis base_url", bool(cfg.analysis_base_url), cfg.analysis_base_url or "set [analysis] base_url"))
+        if cfg.analysis_engine == "anthropic":
+            import os as _os
+            has_key = bool(cfg.analysis_api_key or _os.environ.get("ANTHROPIC_API_KEY"))
+            checks.append(("anthropic api key", has_key, "set" if has_key else "missing"))
     return checks
 
 
@@ -183,8 +202,8 @@ def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_run_once(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow.daemon import setup_logging
-    from paperflow.pipeline import run_once
+    from zotvault.daemon import setup_logging
+    from zotvault.pipeline import run_once
 
     setup_logging(cfg.log_level)
     if args.dry_run:
@@ -205,20 +224,20 @@ def cmd_run_once(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow import daemon
+    from zotvault import daemon
 
     return daemon.run(cfg)
 
 
 def cmd_install_daemon(cfg: Config, args: argparse.Namespace) -> int:
-    Path("~/.paperflow").expanduser().mkdir(parents=True, exist_ok=True)
+    Path("~/.zotvault").expanduser().mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parent.parent
     plist = PLIST_TEMPLATE.format(python=sys.executable, repo=repo, home=Path.home())
-    dest = Path("~/Library/LaunchAgents/com.paperflow.daemon.plist").expanduser()
+    dest = Path("~/Library/LaunchAgents/com.zotvault.daemon.plist").expanduser()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(plist, encoding="utf-8")
     _print("wrote {}".format(dest))
-    _print("PaperFlow does not auto-load it. To start now and at login:")
+    _print("ZotVault does not auto-load it. To start now and at login:")
     _print("  launchctl load {}".format(dest))
     _print("To stop: launchctl unload {}".format(dest))
     return 0
@@ -260,14 +279,14 @@ def cmd_queue(cfg: Config, args: argparse.Namespace) -> int:
         _print("  {} {:40s} pdf={:10s} {}".format(pdf_mark, e.citekey, status, path or ""))
     _print()
     _print("Analyze via Cowork/Claude using the vault contract prompts/analyze_paper.md;")
-    _print("PaperFlow auto-detects the resulting *_analysis.md files.")
+    _print("ZotVault auto-detects the resulting *_analysis.md files.")
     return 0
 
 
 def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
     state = State(cfg.state_db)
     c = state.counts()
-    _print("PaperFlow {}".format(__version__))
+    _print("ZotVault {}".format(__version__))
     _print("state db     : {}".format(cfg.state_db))
     _print("last run     : {} ({})".format(state.kv_get("last_run_at", "never"), state.kv_get("last_run", "-")))
     _print("items tracked: {} (analyzed {})".format(c["items"], c["analyzed"]))
@@ -292,7 +311,7 @@ def cmd_status(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow.zotero_writer import add_identifiers
+    from zotvault.zotero_writer import add_identifiers
 
     state = State(cfg.state_db)
     try:
@@ -309,13 +328,13 @@ def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
                                          r.get("message", "")))
     if any(r["status"] == "added" for r in results):
         _print()
-        _print("Zotero received the item(s); the daemon (or `paperflow run-once`) will "
+        _print("Zotero received the item(s); the daemon (or `zotvault run-once`) will "
                "create notes / fetch PDFs / queue analysis.")
     return 0 if failures == 0 else 1
 
 
 def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow.search import search
+    from zotvault.search import search
 
     state = State(cfg.state_db)
     try:
@@ -340,13 +359,13 @@ def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
         if r.best_identifier:
             _print("    id: {}".format(r.best_identifier))
     _print()
-    _print("add with: paperflow add <doi|arxiv-id> [...]")
+    _print("add with: zotvault add <doi|arxiv-id> [...]")
     return 0
 
 
 def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow.daemon import setup_logging
-    from paperflow import webapp
+    from zotvault.daemon import setup_logging
+    from zotvault import webapp
 
     setup_logging(cfg.log_level)
     try:
@@ -356,7 +375,7 @@ def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
         _print("   (daemon already serving the dashboard? just open http://{}:{})".format(
             cfg.web_host, cfg.web_port))
         return 1
-    _print("PaperFlow dashboard: http://{}:{}  (Ctrl-C to stop)".format(cfg.web_host, cfg.web_port))
+    _print("ZotVault dashboard: http://{}:{}  (Ctrl-C to stop)".format(cfg.web_host, cfg.web_port))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -365,7 +384,7 @@ def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_alerts(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow import alerts
+    from zotvault import alerts
 
     state = State(cfg.state_db)
     try:
@@ -391,8 +410,8 @@ def cmd_alerts(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_enrich(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow.daemon import setup_logging
-    from paperflow import enrich, related, synthesis
+    from zotvault.daemon import setup_logging
+    from zotvault import enrich, related, synthesis
 
     setup_logging(cfg.log_level)
     state = State(cfg.state_db)
@@ -414,7 +433,7 @@ def cmd_enrich(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_related(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow import related
+    from zotvault import related
 
     state = State(cfg.state_db)
     try:
@@ -430,7 +449,7 @@ def cmd_related(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_synthesis(cfg: Config, args: argparse.Namespace) -> int:
-    from paperflow import synthesis
+    from zotvault import synthesis
 
     state = State(cfg.state_db)
     try:
@@ -438,7 +457,7 @@ def cmd_synthesis(cfg: Config, args: argparse.Namespace) -> int:
     finally:
         state.close()
     if not clusters:
-        _print("no clusters (run `paperflow enrich` first; needs Ollama embeddings)")
+        _print("no clusters (run `zotvault enrich` first; needs Ollama embeddings)")
         return 0
     for c in clusters:
         _print("• {} ({} papers)".format(c["label"], len(c["citekeys"])))
@@ -446,6 +465,34 @@ def cmd_synthesis(cfg: Config, args: argparse.Namespace) -> int:
     if args.write:
         _print("\n_Synthesis_Suggestions.md updated (vault/syntheses/)")
     return 0
+
+
+def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
+    from zotvault.daemon import setup_logging
+    from zotvault import analyze
+
+    setup_logging(cfg.log_level)
+    if args.dry_run:
+        cfg.dry_run = True
+    state = State(cfg.state_db)
+    try:
+        results = analyze.run_batch(cfg, state, citekeys=args.citekeys or None,
+                                    limit=args.limit)
+    finally:
+        state.close()
+    if not results:
+        _print("analysis queue is empty ✅")
+        return 0
+    failures = 0
+    for r in results:
+        mark = {"written": "✅", "exists": "↩️", "deferred": "⏸", "error": "❌"}.get(r["status"], "•")
+        if r["status"] == "error":
+            failures += 1
+        _print("{} {:36s} [{}] {}".format(mark, r["citekey"], r["status"], r["detail"][:110]))
+    _print()
+    _print("today's engine analyses: {}/{} · completion is auto-detected by the daemon".format(
+        State(cfg.state_db).analyses_today(), cfg.analysis_daily_limit))
+    return 0 if failures == 0 else 1
 
 
 def cmd_trace(cfg: Config, args: argparse.Namespace) -> int:
@@ -459,9 +506,9 @@ def cmd_trace(cfg: Config, args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="paperflow", description="Local-first Zotero ↔ Obsidian paper pipeline")
-    p.add_argument("--config", help="config file path (default ~/.paperflow/config.toml)")
-    p.add_argument("--version", action="version", version="paperflow " + __version__)
+    p = argparse.ArgumentParser(prog="zotvault", description="Local-first Zotero ↔ Obsidian paper pipeline")
+    p.add_argument("--config", help="config file path (default ~/.zotvault/config.toml)")
+    p.add_argument("--version", action="version", version="zotvault " + __version__)
     sub = p.add_subparsers(dest="command")
 
     sp = sub.add_parser("init", help="create the config file")
@@ -509,6 +556,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("synthesis", help="suggest synthesis clusters")
     sp.add_argument("--write", action="store_true", help="also write _Synthesis_Suggestions.md")
+
+    sp = sub.add_parser("analyze", help="AI-analyze pending papers ([analysis] engine)")
+    sp.add_argument("citekeys", nargs="*", help="specific citekeys (default: all pending)")
+    sp.add_argument("--limit", type=int, default=None)
+    sp.add_argument("--dry-run", action="store_true")
     return p
 
 
@@ -535,6 +587,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         "enrich": cmd_enrich,
         "related": cmd_related,
         "synthesis": cmd_synthesis,
+        "analyze": cmd_analyze,
     }
     return handlers[args.command](cfg, args)
 

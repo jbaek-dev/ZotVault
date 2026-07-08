@@ -2,15 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- Reference template. Prefer `paperflow install-daemon`, which fills the
+    <!-- Reference template. Prefer `zotvault install-daemon`, which fills the
          placeholders with your actual python path and repo location. -->
     <key>Label</key>
-    <string>com.paperflow.daemon</string>
+    <string>com.zotvault.daemon</string>
     <key>ProgramArguments</key>
     <array>
         <string>__PYTHON__</string>
         <string>-m</string>
-        <string>paperflow.cli</string>
+        <string>zotvault.cli</string>
         <string>daemon</string>
     </array>
     <key>EnvironmentVariables</key>
@@ -26,8 +26,8 @@
         <false/>
     </dict>
     <key>StandardOutPath</key>
-    <string>__HOME__/.paperflow/launchd.out.log</string>
+    <string>__HOME__/.zotvault/launchd.out.log</string>
     <key>StandardErrorPath</key>
-    <string>__HOME__/.paperflow/launchd.err.log</string>
+    <string>__HOME__/.zotvault/launchd.err.log</string>
 </dict>
 </plist>

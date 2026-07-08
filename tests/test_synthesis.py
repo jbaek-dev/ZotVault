@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.config import Config
-from paperflow.synthesis import covered_citekeys, label_for, leader_cluster
+from zotvault.config import Config
+from zotvault.synthesis import covered_citekeys, label_for, leader_cluster
 
 
 class TestClustering(unittest.TestCase):

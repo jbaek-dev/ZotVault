@@ -7,8 +7,8 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from paperflow.config import Config
-from paperflow.webapp import make_handler
+from zotvault.config import Config
+from zotvault.webapp import make_handler
 
 
 class TestWebappGuards(unittest.TestCase):
@@ -43,10 +43,10 @@ class TestWebappGuards(unittest.TestCase):
     def test_post_without_header_is_forbidden(self):
         code, body = self._post("/api/add")
         self.assertEqual(code, 403)
-        self.assertIn("X-PaperFlow", body["error"])
+        self.assertIn("X-ZotVault", body["error"])
 
     def test_post_with_header_passes_guard(self):
-        code, body = self._post("/api/add", headers={"X-PaperFlow": "1"})
+        code, body = self._post("/api/add", headers={"X-ZotVault": "1"})
         self.assertEqual(code, 200)
         self.assertEqual(body["error"], "no identifiers")  # guard passed, input invalid
 
@@ -60,7 +60,7 @@ class TestWebappGuards(unittest.TestCase):
 
     def test_foreign_host_header_rejected(self):
         code, body = self._post("/api/add",
-                                headers={"X-PaperFlow": "1", "Host": "evil.example.com"})
+                                headers={"X-ZotVault": "1", "Host": "evil.example.com"})
         self.assertEqual(code, 403)
 
 

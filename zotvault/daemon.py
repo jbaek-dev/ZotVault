@@ -1,7 +1,7 @@
 """Long-running poller: run the pipeline every poll_interval_sec.
 
 Single-instance guard via a pid lockfile; SIGTERM/SIGINT exit cleanly.
-Logs to ~/.paperflow/paperflow.log (rotating) and stderr.
+Logs to ~/.zotvault/zotvault.log (rotating) and stderr.
 """
 from __future__ import annotations
 
@@ -13,14 +13,14 @@ import sys
 import time
 from pathlib import Path
 
-from paperflow.config import Config
-from paperflow.pipeline import run_once
-from paperflow.state import State
+from zotvault.config import Config
+from zotvault.pipeline import run_once
+from zotvault.state import State
 
-log = logging.getLogger("paperflow")
+log = logging.getLogger("zotvault")
 
-_LOCK = Path("~/.paperflow/daemon.pid").expanduser()
-_LOGFILE = Path("~/.paperflow/paperflow.log").expanduser()
+_LOCK = Path("~/.zotvault/daemon.pid").expanduser()
+_LOGFILE = Path("~/.zotvault/zotvault.log").expanduser()
 
 _stop = False
 
@@ -84,7 +84,7 @@ def _daily_jobs(cfg: Config, state: State) -> None:
     if (cfg.alerts_enabled and cfg.alerts_keywords
             and state.kv_get("alerts_last_day") != today and hour >= cfg.alerts_hour):
         try:
-            from paperflow import alerts
+            from zotvault import alerts
 
             added = alerts.fetch(cfg, state)
             state.kv_set("alerts_last_day", today)
@@ -103,7 +103,7 @@ def _daily_jobs(cfg: Config, state: State) -> None:
                 due = True
         if due:
             try:
-                from paperflow import enrich, related, synthesis
+                from zotvault import enrich, related, synthesis
 
                 if cfg.feat_citation_graph:
                     enrich.run(cfg, state)
@@ -122,22 +122,22 @@ def run(cfg: Config) -> int:
     if not acquire_lock():
         # exit 0 on purpose: launchd's KeepAlive={SuccessfulExit:false} must not
         # respawn-loop when the icon-launched daemon already holds the lock.
-        log.info("another paperflow daemon is already running (pid file: %s) — exiting", _LOCK)
+        log.info("another zotvault daemon is already running (pid file: %s) — exiting", _LOCK)
         return 0
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     state = State(cfg.state_db)
     state.trace("daemon_start", "", "poll every {}s".format(cfg.poll_interval_sec))
-    log.info("PaperFlow daemon started (poll every %ss, dry_run=%s)", cfg.poll_interval_sec, cfg.dry_run)
+    log.info("ZotVault daemon started (poll every %ss, dry_run=%s)", cfg.poll_interval_sec, cfg.dry_run)
     web_server = None
     if cfg.web_enabled:
-        from paperflow import webapp
+        from zotvault import webapp
 
         web_server = webapp.start_in_thread(cfg)
     try:
         while not _stop:
             try:
-                from paperflow.webapp import RUN_LOCK
+                from zotvault.webapp import RUN_LOCK
 
                 with RUN_LOCK:
                     summary = run_once(cfg, state)
@@ -146,6 +146,10 @@ def run(cfg: Config) -> int:
                 else:
                     log.debug("cycle: %s", summary.line())
                 _daily_jobs(cfg, state)
+                if cfg.analysis_auto and cfg.analysis_engine != "none" and summary.changed:
+                    from zotvault import analyze
+
+                    analyze.run_batch_bg(cfg)
             except Exception:
                 log.exception("pipeline cycle failed")
             # sleep in 1s slices so signals stop us promptly
@@ -159,5 +163,5 @@ def run(cfg: Config) -> int:
         state.trace("daemon_stop", "", "")
         state.close()
         release_lock()
-        log.info("PaperFlow daemon stopped")
+        log.info("ZotVault daemon stopped")
     return 0

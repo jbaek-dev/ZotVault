@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.state import State
+from zotvault.state import State
 
 
 class TestState(unittest.TestCase):

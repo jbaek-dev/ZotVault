@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0 — 2026-07-08 (ZotVault)
+
+- **Renamed PaperFlow → ZotVault** (name collisions with papersflow.ai,
+  paper-flow.ai and same-named GitHub projects). Module `zotvault`, CLI
+  `zotvault`, config/state at `~/.zotvault/`, app bundle ZotVault.app,
+  header `X-ZotVault`, env `ZOTVAULT_*` / `POLARIS_ZOTVAULT_URL`.
+- **Pluggable AI analysis engine** (`[analysis] engine`): `ollama` (local,
+  free), `claude-cli` (your Claude subscription via `claude -p`),
+  `openai-compatible` (LM Studio/vLLM/OpenRouter/...), `anthropic` (API), or
+  `none` (manual workflow, default). Generates `{citekey}_*_analysis.md` with
+  the vault's ai_analysis frontmatter; never overwrites existing analyses;
+  daily budget; `auto = false` by default (daemon can auto-analyze when
+  enabled). Full text via poppler `pdftotext`, abstract fallback recorded in
+  `input_basis`. New: `zotvault analyze`, dashboard "Analyze pending" button,
+  doctor engine checks.
+
 ## 0.5.1 — 2026-07-08 (ultrareview hardening)
 
 - **search**: DOI/arXiv id in the search box now resolves the exact paper
@@ -8,25 +24,25 @@
   (expiry=0) are pinned so Python sends them; `citation_pdf_url` is re-routed
   through the proxy; Wiley `/doi/pdfdirect/` variant; EZproxy "not configured"
   stanza error surfaced with an actionable message. Verified live end-to-end.
-- **security**: dashboard POST endpoints require the `X-PaperFlow` header and
+- **security**: dashboard POST endpoints require the `X-ZotVault` header and
   a local `Host` (blocks cross-origin CSRF against 127.0.0.1); cookie-file
   permission check in `doctor`; `.gitignore` blocks cookie files.
 - **launchd**: `KeepAlive.SuccessfulExit=false` + lock-conflict exit 0 —
   removes the respawn loop when the icon-launched daemon already runs.
 - **robustness**: filesystem-unsafe citekeys are rejected per-item; friendly
-  port-in-use message for `paperflow web`; lint cleanups.
+  port-in-use message for `zotvault web`; lint cleanups.
 - **app bundle**: AppleScript-applet launcher (the only bundle form macOS TCC
   can bind grants to); bundle frozen after ad-hoc signing; code loads from
-  `~/.paperflow/app` synced by `scripts/apply_edits.sh` — grants survive edits.
+  `~/.zotvault/app` synced by `scripts/apply_edits.sh` — grants survive edits.
 
 ## 0.5.0 — 2026-07-05 (M2–M5)
 
 ### M2 — collect
-- One-shot add: `paperflow add <doi|arxiv|url>` — Crossref/DataCite/arXiv
+- One-shot add: `zotvault add <doi|arxiv|url>` — Crossref/DataCite/arXiv
   native resolvers → Zotero `/connector/saveItems` (the browser-connector
   channel). Optional translation-server for arbitrary URL imports.
 - Duplicate detection against local state (DOI / arXiv id).
-- Paper search (`paperflow search`, dashboard): arXiv, Semantic Scholar,
+- Paper search (`zotvault search`, dashboard): arXiv, Semantic Scholar,
   Crossref, with in-library annotation.
 - Local web dashboard (stdlib HTTP server, localhost-only): search → select →
   add, analysis queue, alerts inbox, suggestions, audit trace.
@@ -48,8 +64,8 @@
   papers → `syntheses/_Synthesis_Suggestions.md`.
 
 ### M5 — ecosystem
-- Polaris agent bridge (`polaris/tools/paperflow_tools.py` in the Polaris
-  repo): status / queue / search / add via the PaperFlow HTTP API.
+- Polaris agent bridge (`polaris/tools/zotvault_tools.py` in the Polaris
+  repo): status / queue / search / add via the ZotVault HTTP API.
 - Docs, 47+ unit tests, zero runtime dependencies (Python ≥ 3.9 stdlib).
 
 ## 0.1.0 — 2026-07-04 (M1)

@@ -1,5 +1,5 @@
-# PaperFlow configuration
-# Copy to ~/.paperflow/config.toml (or run `paperflow init`)
+# ZotVault configuration
+# Copy to ~/.zotvault/config.toml (or run `zotvault init`)
 
 [zotero]
 # Zotero data directory (contains zotero.sqlite and storage/)
@@ -24,8 +24,8 @@ append_log = true
 dry_run = false
 
 [pdf]
-# Downloaded PDFs are stored here (PaperFlow never writes into Zotero storage/)
-dir = "~/.paperflow/pdfs"
+# Downloaded PDFs are stored here (ZotVault never writes into Zotero storage/)
+dir = "~/.zotvault/pdfs"
 # Required by the Unpaywall API. Use your real email.
 unpaywall_email = ""
 daily_download_limit = 20
@@ -74,6 +74,20 @@ related_papers = true
 synthesis_suggestions = true
 enrich_every_hours = 24
 
+[analysis]
+# Pluggable AI review engine. "none" = manual workflow (queue only). Others
+# generate {citekey}_*_analysis.md automatically (never overwrites existing):
+#   ollama            local & free  -> also set: model = "qwen2.5:14b" (etc.)
+#   claude-cli        uses your Claude Code subscription (`claude -p`)
+#   openai-compatible LM Studio / vLLM / OpenRouter ... -> set base_url (+model)
+#   anthropic         Anthropic API -> set api_key or $ANTHROPIC_API_KEY (+model)
+engine = "none"
+model = ""
+base_url = ""
+api_key = ""
+auto = false            # let the daemon analyze new papers automatically
+daily_limit = 5
+
 [app]
-state_db = "~/.paperflow/state.db"
+state_db = "~/.zotvault/state.db"
 log_level = "INFO"

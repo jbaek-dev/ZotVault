@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.indexer import append_log, current_progress, update_progress
+from zotvault.indexer import append_log, current_progress, update_progress
 
 INDEX_SAMPLE = """# Index
 
@@ -35,10 +35,10 @@ class TestIndexer(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "log.md"
             p.write_text("# log\n", encoding="utf-8")
-            ok = append_log(p, "PaperFlow 자동 동기화", "노트 2건 생성", "papers/")
+            ok = append_log(p, "ZotVault 자동 동기화", "노트 2건 생성", "papers/")
             self.assertTrue(ok)
             text = p.read_text(encoding="utf-8")
-            self.assertIn("PaperFlow 자동 동기화", text)
+            self.assertIn("ZotVault 자동 동기화", text)
             self.assertIn("- summary: 노트 2건 생성", text)
 
     def test_append_log_missing_file(self):

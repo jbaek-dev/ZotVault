@@ -3,7 +3,7 @@
 Hierarchy (later wins): built-in defaults -> config file (TOML) -> environment variables.
 
 No personal data is hardcoded anywhere in the package; everything user-specific
-lives in ~/.paperflow/config.toml (see CONFIG_TEMPLATE / `paperflow init`).
+lives in ~/.zotvault/config.toml (see CONFIG_TEMPLATE / `zotvault init`).
 
 Python 3.9 compatible: uses tomllib when available (3.11+), otherwise a small
 built-in parser that covers the subset of TOML this app uses (sections,
@@ -16,8 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-DEFAULT_CONFIG_PATH = "~/.paperflow/config.toml"
-APP_CODE_DIR = "~/.paperflow/app"  # where the launcher loads code from (see scripts/build_app.sh)
+DEFAULT_CONFIG_PATH = "~/.zotvault/config.toml"
+APP_CODE_DIR = "~/.zotvault/app"  # where the launcher loads code from (see scripts/build_app.sh)
 
 DEFAULT_ITEM_TYPES = [
     "journalArticle",
@@ -29,8 +29,8 @@ DEFAULT_ITEM_TYPES = [
     "thesis",
 ]
 
-CONFIG_TEMPLATE = '''# PaperFlow configuration
-# Location: ~/.paperflow/config.toml   (override with $PAPERFLOW_CONFIG)
+CONFIG_TEMPLATE = '''# ZotVault configuration
+# Location: ~/.zotvault/config.toml   (override with $ZOTVAULT_CONFIG)
 
 [zotero]
 # Zotero data directory (contains zotero.sqlite and storage/)
@@ -55,8 +55,8 @@ append_log = true
 dry_run = false
 
 [pdf]
-# Downloaded PDFs are stored here (PaperFlow never writes into Zotero storage/)
-dir = "~/.paperflow/pdfs"
+# Downloaded PDFs are stored here (ZotVault never writes into Zotero storage/)
+dir = "~/.zotvault/pdfs"
 # Required by the Unpaywall API. Use your real email.
 unpaywall_email = ""
 daily_download_limit = 20
@@ -105,8 +105,22 @@ related_papers = true
 synthesis_suggestions = true
 enrich_every_hours = 24
 
+[analysis]
+# Pluggable AI review engine. "none" = manual workflow (queue only). Others
+# generate {citekey}_*_analysis.md automatically (never overwrites existing):
+#   ollama            local & free  -> also set: model = "qwen2.5:14b" (etc.)
+#   claude-cli        uses your Claude Code subscription (`claude -p`)
+#   openai-compatible LM Studio / vLLM / OpenRouter ... -> set base_url (+model)
+#   anthropic         Anthropic API -> set api_key or $ANTHROPIC_API_KEY (+model)
+engine = "none"
+model = ""
+base_url = ""
+api_key = ""
+auto = false            # let the daemon analyze new papers automatically
+daily_limit = 5
+
 [app]
-state_db = "~/.paperflow/state.db"
+state_db = "~/.zotvault/state.db"
 log_level = "INFO"
 '''
 
@@ -130,7 +144,7 @@ class Config:
     dry_run: bool = False
     item_types: List[str] = field(default_factory=lambda: list(DEFAULT_ITEM_TYPES))
     # pdf
-    pdf_dir: Path = Path("~/.paperflow/pdfs").expanduser()
+    pdf_dir: Path = Path("~/.zotvault/pdfs").expanduser()
     unpaywall_email: str = ""
     daily_download_limit: int = 20
     request_delay_sec: float = 5.0
@@ -170,8 +184,19 @@ class Config:
     related_threshold: float = 0.75
     synthesis_threshold: float = 0.70
     synthesis_min_cluster: int = 4
+    # analysis engine (v0.6) — pluggable AI review
+    analysis_engine: str = "none"       # none|ollama|claude-cli|openai-compatible|anthropic
+    analysis_model: str = ""
+    analysis_base_url: str = ""          # openai-compatible endpoint, e.g. http://localhost:1234/v1
+    analysis_api_key: str = ""           # or $OPENAI_API_KEY / $ANTHROPIC_API_KEY
+    analysis_prompt_file: str = ""       # custom prompt template
+    analysis_suffix: str = ""            # analysis filename tag; default per engine
+    analysis_auto: bool = False          # daemon auto-analyzes new papers (budgeted)
+    analysis_daily_limit: int = 5
+    analysis_max_chars: int = 40000
+    analysis_timeout_sec: int = 600
     # app
-    state_db: Path = Path("~/.paperflow/state.db").expanduser()
+    state_db: Path = Path("~/.zotvault/state.db").expanduser()
     log_level: str = "INFO"
     config_path: Optional[Path] = None
 
@@ -238,7 +263,7 @@ def _strip_comment(line: str) -> str:
 
 
 def parse_toml_mini(text: str) -> Dict[str, Dict[str, Any]]:
-    """Parse the subset of TOML used by PaperFlow's config file.
+    """Parse the subset of TOML used by ZotVault's config file.
 
     Supports [sections], key = "string" | int | float | bool | ["a", "b"].
     Does NOT support nested tables, multi-line strings, or dates.
@@ -286,7 +311,7 @@ def _expand(p: str) -> Path:
 
 def load_config(config_path: Optional[str] = None) -> Config:
     cfg = Config()
-    path = _expand(config_path or os.environ.get("PAPERFLOW_CONFIG", DEFAULT_CONFIG_PATH))
+    path = _expand(config_path or os.environ.get("ZOTVAULT_CONFIG", DEFAULT_CONFIG_PATH))
     data: Dict[str, Dict[str, Any]] = {}
     if path.exists():
         data = _load_toml_file(path)
@@ -314,7 +339,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
     if isinstance(item_types, list) and item_types:
         cfg.item_types = [str(t) for t in item_types]
 
-    cfg.pdf_dir = _expand(get("pdf", "dir", "~/.paperflow/pdfs"))
+    cfg.pdf_dir = _expand(get("pdf", "dir", "~/.zotvault/pdfs"))
     cfg.unpaywall_email = str(get("pdf", "unpaywall_email", ""))
     cfg.daily_download_limit = int(get("pdf", "daily_download_limit", cfg.daily_download_limit))
     cfg.request_delay_sec = float(get("pdf", "request_delay_sec", cfg.request_delay_sec))
@@ -359,19 +384,30 @@ def load_config(config_path: Optional[str] = None) -> Config:
     cfg.synthesis_threshold = float(get("features", "synthesis_threshold", cfg.synthesis_threshold))
     cfg.synthesis_min_cluster = int(get("features", "synthesis_min_cluster", cfg.synthesis_min_cluster))
 
-    cfg.state_db = _expand(get("app", "state_db", "~/.paperflow/state.db"))
+    cfg.analysis_engine = str(get("analysis", "engine", cfg.analysis_engine)).lower()
+    cfg.analysis_model = str(get("analysis", "model", ""))
+    cfg.analysis_base_url = str(get("analysis", "base_url", "")).rstrip("/")
+    cfg.analysis_api_key = str(get("analysis", "api_key", ""))
+    cfg.analysis_prompt_file = str(get("analysis", "prompt_file", ""))
+    cfg.analysis_suffix = str(get("analysis", "suffix", ""))
+    cfg.analysis_auto = bool(get("analysis", "auto", cfg.analysis_auto))
+    cfg.analysis_daily_limit = int(get("analysis", "daily_limit", cfg.analysis_daily_limit))
+    cfg.analysis_max_chars = int(get("analysis", "max_chars", cfg.analysis_max_chars))
+    cfg.analysis_timeout_sec = int(get("analysis", "timeout_sec", cfg.analysis_timeout_sec))
+
+    cfg.state_db = _expand(get("app", "state_db", "~/.zotvault/state.db"))
     cfg.log_level = str(get("app", "log_level", cfg.log_level)).upper()
 
     # Environment overrides (highest priority)
     env = os.environ
-    if env.get("PAPERFLOW_ZOTERO_DIR"):
-        cfg.zotero_data_dir = _expand(env["PAPERFLOW_ZOTERO_DIR"])
-    if env.get("PAPERFLOW_VAULT_DIR"):
-        cfg.vault_dir = _expand(env["PAPERFLOW_VAULT_DIR"])
-    if env.get("PAPERFLOW_CONNECTOR_URL"):
-        cfg.connector_url = env["PAPERFLOW_CONNECTOR_URL"].rstrip("/")
-    if env.get("PAPERFLOW_STATE_DB"):
-        cfg.state_db = _expand(env["PAPERFLOW_STATE_DB"])
-    if env.get("PAPERFLOW_DRY_RUN"):
-        cfg.dry_run = env["PAPERFLOW_DRY_RUN"] not in ("0", "false", "False", "")
+    if env.get("ZOTVAULT_ZOTERO_DIR"):
+        cfg.zotero_data_dir = _expand(env["ZOTVAULT_ZOTERO_DIR"])
+    if env.get("ZOTVAULT_VAULT_DIR"):
+        cfg.vault_dir = _expand(env["ZOTVAULT_VAULT_DIR"])
+    if env.get("ZOTVAULT_CONNECTOR_URL"):
+        cfg.connector_url = env["ZOTVAULT_CONNECTOR_URL"].rstrip("/")
+    if env.get("ZOTVAULT_STATE_DB"):
+        cfg.state_db = _expand(env["ZOTVAULT_STATE_DB"])
+    if env.get("ZOTVAULT_DRY_RUN"):
+        cfg.dry_run = env["ZOTVAULT_DRY_RUN"] not in ("0", "false", "False", "")
     return cfg

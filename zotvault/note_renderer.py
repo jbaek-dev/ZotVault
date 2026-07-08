@@ -1,13 +1,13 @@
 """Render Obsidian paper notes compatible with the Papers_Zotero_v3 template.
 
 Rules:
-- If a note already exists for a citekey, PaperFlow NEVER touches it (M1).
+- If a note already exists for a citekey, ZotVault NEVER touches it (M1).
   The `## My Synthesis` section is user-owned; skipping existing files is the
   strongest possible guarantee that it survives.
 - Writes are atomic (tmp file + os.replace).
 - Annotation (highlight) sections are emitted empty; rich highlight import can
   still be done via the obsidian-zotero-desktop-connector plugin, which
-  PaperFlow deliberately does not overwrite.
+  ZotVault deliberately does not overwrite.
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
-from paperflow.zotero_reader import RawItem
+from zotvault.zotero_reader import RawItem
 
 NOTE_TEMPLATE = """---
 type: paper

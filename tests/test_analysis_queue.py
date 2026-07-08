@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow import analysis_queue
+from zotvault import analysis_queue
 
 
 def make_vault(td: Path):

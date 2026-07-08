@@ -1,8 +1,8 @@
 #!/bin/bash
-# Build PaperFlow.app — a double-clickable launcher for the daemon + dashboard.
+# Build ZotVault.app — a double-clickable launcher for the daemon + dashboard.
 #
 # What the app does on launch:
-#   1. If the PaperFlow web/daemon isn't running, start the daemon in the
+#   1. If the ZotVault web/daemon isn't running, start the daemon in the
 #      background (single-instance lock makes double-launch safe).
 #   2. Open the dashboard in the default browser.
 #
@@ -16,8 +16,8 @@
 #     Therefore the app is an **AppleScript applet** (a real Mach-O main
 #     binary carrying the bundle identity) that runs Resources/launch.sh via
 #     `do shell script` — children inherit the app's TCC identity.
-#   * The bundle is ad-hoc signed and then FROZEN. Paperflow code is NOT in
-#     the bundle: it lives in ~/.paperflow/app (non-TCC path, PYTHONPATH).
+#   * The bundle is ad-hoc signed and then FROZEN. ZotVault code is NOT in
+#     the bundle: it lives in ~/.zotvault/app (non-TCC path, PYTHONPATH).
 #     Code edits ship with scripts/apply_edits.sh (rsync + daemon restart),
 #     which never touches the bundle -> the FDA grant survives.
 #   * Re-running THIS script changes the signature: afterwards, remove and
@@ -32,22 +32,22 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 DEST_DIR="${1:-/Applications}"
 [ -w "$DEST_DIR" ] || DEST_DIR="$HOME/Applications"
 mkdir -p "$DEST_DIR"
-APP="$DEST_DIR/PaperFlow.app"
+APP="$DEST_DIR/ZotVault.app"
 PB=/usr/libexec/PlistBuddy
 
 echo "building $APP"
 echo "  source: $REPO"
 
 # ---- 1. sync code to its runtime home (outside bundle, outside TCC) ---------
-CODE_DIR="$HOME/.paperflow/app"
+CODE_DIR="$HOME/.zotvault/app"
 mkdir -p "$CODE_DIR"
 /usr/bin/rsync -a --delete \
   --exclude '__pycache__' --exclude '*.pyc' \
-  "$REPO/paperflow" "$CODE_DIR/"
-echo "  code: -> $CODE_DIR/paperflow"
+  "$REPO/zotvault" "$CODE_DIR/"
+echo "  code: -> $CODE_DIR/zotvault"
 
 # ---- 2. compile the AppleScript applet (real Mach-O identity holder) --------
-TMP_AS="$(mktemp -t paperflow_main).applescript"
+TMP_AS="$(mktemp -t zotvault_main).applescript"
 cat > "$TMP_AS" << 'AS'
 set sh to POSIX path of (path to resource "launch.sh")
 do shell script "/bin/bash " & quoted form of sh
@@ -59,39 +59,39 @@ rm -f "$TMP_AS"
 # ---- 3. launcher shell logic (inside the frozen bundle) ----------------------
 cat > "$APP/Contents/Resources/launch.sh" << 'LAUNCH'
 #!/bin/bash
-# PaperFlow launcher body. Runs with the app's TCC identity via the applet.
-export PYTHONPATH="$HOME/.paperflow/app"
+# ZotVault launcher body. Runs with the app's TCC identity via the applet.
+export PYTHONPATH="$HOME/.zotvault/app"
 PY=/usr/bin/python3
-CONF="$HOME/.paperflow/config.toml"
+CONF="$HOME/.zotvault/config.toml"
 PORT=$(grep -m1 -E '^[[:space:]]*port[[:space:]]*=' "$CONF" 2>/dev/null | grep -oE '[0-9]+' | head -1)
 PORT="${PORT:-8377}"
 URL="http://127.0.0.1:${PORT}"
 
 alertq() {
-  /usr/bin/osascript -e "display alert \"PaperFlow\" message \"$1\"" >/dev/null 2>&1
+  /usr/bin/osascript -e "display alert \"ZotVault\" message \"$1\"" >/dev/null 2>&1
   exit 0
 }
 
-[ -d "$HOME/.paperflow/app/paperflow" ] || alertq "code not found in ~/.paperflow/app — run scripts/build_app.sh (or apply_edits.sh) from the repo"
+[ -d "$HOME/.zotvault/app/zotvault" ] || alertq "code not found in ~/.zotvault/app — run scripts/build_app.sh (or apply_edits.sh) from the repo"
 
 # First run: create a starter config, open it, and stop here.
 if [ ! -f "$CONF" ]; then
-  mkdir -p "$HOME/.paperflow"
-  "$PY" -m paperflow.cli init >/dev/null 2>&1 || true
+  mkdir -p "$HOME/.zotvault"
+  "$PY" -m zotvault.cli init >/dev/null 2>&1 || true
   /usr/bin/open -e "$CONF" 2>/dev/null
-  alertq "First run: a starter config was created at ~/.paperflow/config.toml. Set your vault path (and Unpaywall email), then click the icon again."
+  alertq "First run: a starter config was created at ~/.zotvault/config.toml. Set your vault path (and Unpaywall email), then click the icon again."
 fi
 
 up() { /usr/bin/curl -s -m 1 -o /dev/null "$URL/api/status"; }
 
 if ! up; then
-  /usr/bin/nohup "$PY" -m paperflow.cli daemon >> "$HOME/.paperflow/launcher.log" 2>&1 &
+  /usr/bin/nohup "$PY" -m zotvault.cli daemon >> "$HOME/.zotvault/launcher.log" 2>&1 &
   ok=""
   for _ in $(seq 1 40); do
     sleep 0.5
     if up; then ok=1; break; fi
   done
-  [ -n "$ok" ] || alertq "daemon did not come up — see ~/.paperflow/paperflow.log"
+  [ -n "$ok" ] || alertq "daemon did not come up — see ~/.zotvault/zotvault.log"
 fi
 
 /usr/bin/open "$URL"
@@ -104,14 +104,14 @@ PLIST="$APP/Contents/Info.plist"
 set_or_add() {  # key type value
   $PB -c "Set :$1 $3" "$PLIST" 2>/dev/null || $PB -c "Add :$1 $2 $3" "$PLIST"
 }
-set_or_add CFBundleIdentifier string com.paperflow.launcher
-set_or_add CFBundleName string PaperFlow
-set_or_add CFBundleDisplayName string PaperFlow
-set_or_add CFBundleShortVersionString string 0.5.0
-set_or_add CFBundleVersion string 0.5.0
+set_or_add CFBundleIdentifier string com.zotvault.launcher
+set_or_add CFBundleName string ZotVault
+set_or_add CFBundleDisplayName string ZotVault
+set_or_add CFBundleShortVersionString string 0.6.0
+set_or_add CFBundleVersion string 0.6.0
 set_or_add LSUIElement bool true
 set_or_add LSMinimumSystemVersion string 11.0
-set_or_add NSDocumentsFolderUsageDescription string "PaperFlow reads and writes paper notes in your Obsidian vault."
+set_or_add NSDocumentsFolderUsageDescription string "ZotVault reads and writes paper notes in your Obsidian vault."
 
 # ---- 5. icon (osacompile names it applet.icns) --------------------------------
 if [ -d "$REPO/assets/icon.iconset" ]; then

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaperFlow</title>
+<title>ZotVault</title>
 <style>
   :root { --bg:#12151a; --panel:#1b2027; --line:#2a323d; --fg:#dbe2ea; --dim:#8b98a5;
           --acc:#4da3ff; --ok:#3fbf7f; --warn:#e0b341; --err:#e06c5b; }
@@ -52,11 +52,12 @@
 </head>
 <body>
 <header>
-  <h1>📄 PaperFlow</h1>
+  <h1>📄 ZotVault</h1>
   <span class="sub" id="version"></span>
   <span style="flex:1"></span>
   <button class="ghost small" onclick="runOnce()">Run pipeline now</button>
   <button class="ghost small" onclick="runEnrich()">Enrich (citations · related)</button>
+  <button class="ghost small" onclick="runAnalyze()">Analyze pending (AI)</button>
 </header>
 <main>
 
@@ -85,7 +86,7 @@
   <h2>Analysis queue <span class="muted" id="queue-count"></span></h2>
   <div class="muted" style="margin-bottom:8px">
     Run the analysis batch in Cowork/Claude (contract: <code>prompts/analyze_paper.md</code>);
-    PaperFlow detects the <code>*_analysis.md</code> files automatically.
+    ZotVault detects the <code>*_analysis.md</code> files automatically.
   </div>
   <div id="queue"></div>
 </section>
@@ -117,7 +118,7 @@ function toast(msg, ms=3500){ const t=$("toast"); t.textContent=msg; t.style.dis
 
 async function api(path, opts){
   opts = opts || {};
-  opts.headers = Object.assign({"X-PaperFlow": "1"}, opts.headers || {});
+  opts.headers = Object.assign({"X-ZotVault": "1"}, opts.headers || {});
   const r = await fetch(path, opts); return r.json();
 }
 
@@ -232,6 +233,10 @@ async function runOnce(){
   const r = await api("/api/run-once", {method:"POST"});
   toast(r.ok ? "✅ " + r.summary : "⏳ " + (r.message||r.error));
   refreshAll();
+}
+async function runAnalyze(){
+  const r = await api("/api/analyze", {method:"POST"});
+  toast(r.ok ? "🤖 " + r.message + " — watch the queue/trace" : "⚠️ " + (r.message||r.error), 6000);
 }
 async function runEnrich(){
   const r = await api("/api/enrich", {method:"POST"});

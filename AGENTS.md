@@ -1,6 +1,6 @@
-# PaperFlow — Agent Protocol
+# ZotVault — Agent Protocol
 
-You are an AI tool asked to modify or extend PaperFlow. Read in this order:
+You are an AI tool asked to modify or extend ZotVault. Read in this order:
 
 1. **This file** — the rules.
 2. **`graph.json`** — structure map: modules, data stores, HTTP API, invariants, extension points. Orientation only; the code is the source of truth.
@@ -18,8 +18,8 @@ You are an AI tool asked to modify or extend PaperFlow. Read in this order:
 4. Run `python3 -m unittest discover -s tests` — all green, add tests for new
    logic (network-free; mock/fixture based).
 5. Apply to the installed app with `bash scripts/apply_edits.sh` — it rsyncs
-   the source to `~/.paperflow/app` (the runtime code home) and restarts the
-   daemon. NEVER modify or re-sign /Applications/PaperFlow.app: macOS binds
+   the source to `~/.zotvault/app` (the runtime code home) and restarts the
+   daemon. NEVER modify or re-sign /Applications/ZotVault.app: macOS binds
    the Full Disk Access grant to its frozen signature. Full
    `scripts/build_app.sh` only for icon/launcher changes (user must then
    re-grant FDA).

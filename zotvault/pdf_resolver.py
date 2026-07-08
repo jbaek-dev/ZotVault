@@ -8,7 +8,7 @@ Etiquette safeguards (bulk-download bans are real):
 - hard daily download limit (state-tracked)
 - honest User-Agent including a contact email
 
-Downloads land in cfg.pdf_dir — PaperFlow never writes into Zotero storage/.
+Downloads land in cfg.pdf_dir — ZotVault never writes into Zotero storage/.
 """
 from __future__ import annotations
 
@@ -20,10 +20,10 @@ import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
-from paperflow.zotero_reader import RawItem
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
+from zotvault.zotero_reader import RawItem
 
 _ARXIV_URL_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/([0-9]{4}\.[0-9]{4,5}(?:v\d+)?|[a-z\-]+(?:\.[A-Z]{2})?/\d{7})", re.I)
 _ARXIV_DOI_RE = re.compile(r"^10\.48550/arxiv\.(.+)$", re.I)
@@ -34,7 +34,7 @@ _MIN_PDF_BYTES = 10_000
 
 def _ua(cfg: Config) -> str:
     contact = cfg.unpaywall_email or "no-contact-configured"
-    return "PaperFlow/{} (mailto:{})".format(__version__, contact)
+    return "ZotVault/{} (mailto:{})".format(__version__, contact)
 
 
 def find_arxiv_id(item: RawItem) -> Optional[str]:
@@ -53,7 +53,7 @@ def unpaywall_pdf_urls(doi: str, email: str, timeout: int) -> List[str]:
     url = "https://api.unpaywall.org/v2/{}?email={}".format(
         urllib.parse.quote(doi), urllib.parse.quote(email)
     )
-    req = urllib.request.Request(url, headers={"User-Agent": "PaperFlow/" + __version__})
+    req = urllib.request.Request(url, headers={"User-Agent": "ZotVault/" + __version__})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -124,7 +124,7 @@ def resolve(item: RawItem, cfg: Config, state: State) -> Tuple[str, Optional[str
             return "downloaded", str(cached)
     # 5. licensed fallback through the institutional proxy (M3, opt-in)
     if cfg.proxy_enabled:
-        from paperflow import proxy
+        from zotvault import proxy
 
         saved, msg = proxy.fetch_licensed_pdf(item, cfg, state)
         if saved:

@@ -1,4 +1,4 @@
-# PaperFlow (한국어)
+# ZotVault (한국어)
 
 **Zotero ↔ Obsidian 사이를 자동으로 잇는 로컬 논문 파이프라인 오케스트레이터.**
 
@@ -10,16 +10,16 @@
 
 1. **수집** — 3가지 아무거나:
    - 평소처럼 브라우저 Zotero Connector
-   - `paperflow add 10.1103/PhysRevB.1.1` 또는 대시보드에서 검색→체크→추가
+   - `zotvault add 10.1103/PhysRevB.1.1` 또는 대시보드에서 검색→체크→추가
    - arXiv 알림 인박스에서 승인 클릭
 2. 데몬이 2분 내 감지 → 노트·PDF·큐 자동 처리
-3. 분석: `paperflow queue` 확인 → Cowork에서 "미분석 배치 분석" (기존 계약 그대로) → 완료 자동 감지
+3. 분석: `zotvault queue` 확인 → Cowork에서 "미분석 배치 분석" (기존 계약 그대로) → 완료 자동 감지
 4. 매일: 알림 다이제스트 + 인용그래프/관련추천/synthesis 제안 노트 자동 갱신
 
 ## 대시보드
 
 ```bash
-paperflow web   # → http://127.0.0.1:8377 (localhost 전용)
+zotvault web   # → http://127.0.0.1:8377 (localhost 전용)
 ```
 
 검색→추가, 분석 큐, arXiv 인박스, synthesis 제안, 감사 로그 한 화면.
@@ -40,14 +40,14 @@ paperflow web   # → http://127.0.0.1:8377 (localhost 전용)
 ## 안전 보장
 
 - Zotero DB·storage에 절대 쓰지 않음 (추가는 Zotero 공식 connector 채널로, Zotero가 스스로 기록)
-- 기존 노트 불가침 (`## My Synthesis` 보존), 자동 생성 노트는 AUTO 표시 + PaperFlow 소유분만 재생성, 삭제 코드 경로 없음
+- 기존 노트 불가침 (`## My Synthesis` 보존), 자동 생성 노트는 AUTO 표시 + ZotVault 소유분만 재생성, 삭제 코드 경로 없음
 - 다운로드 예절: OA 우선, 순차+지연+일일한도, 프록시는 더 엄격한 별도 한도 — 학교 IP 차단 방지 설계
 - 프록시 인증: 비밀번호 자동화 없음. 브라우저에서 로그인한 세션 쿠키(cookies.txt) 재사용 (Duo 호환). 설정법 `docs/PROXY.md`
 - 모든 자동 행동 trace 기록
 
 ## Polaris 연동
 
-Polaris 레포의 `polaris/tools/paperflow_tools.py`가 자동 등록됨:
+Polaris 레포의 `polaris/tools/zotvault_tools.py`가 자동 등록됨:
 텔레그램에서 "valleytronics 최신 논문 찾아줘" → 검색 결과(보유 표시 포함) → "1, 3번 추가해" → Zotero 추가 → 데몬이 나머지 처리.
 
 ## 설치·테스트

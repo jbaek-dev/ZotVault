@@ -26,11 +26,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
 
-log = logging.getLogger("paperflow.web")
+log = logging.getLogger("zotvault.web")
 
 RUN_LOCK = threading.Lock()          # shared with the daemon loop
 _BG_LOCK = threading.Lock()          # single background enrich at a time
@@ -39,7 +39,7 @@ _STATIC = Path(__file__).parent / "static"
 
 
 def _run_pipeline_guarded(cfg: Config) -> Dict[str, Any]:
-    from paperflow.pipeline import run_once
+    from zotvault.pipeline import run_once
 
     if not RUN_LOCK.acquire(blocking=False):
         return {"ok": False, "message": "a pipeline cycle is already running"}
@@ -56,7 +56,7 @@ def _run_pipeline_guarded(cfg: Config) -> Dict[str, Any]:
 
 def make_handler(cfg: Config):
     class Handler(BaseHTTPRequestHandler):
-        server_version = "PaperFlow/" + __version__
+        server_version = "ZotVault/" + __version__
 
         # -- plumbing -----------------------------------------------------
         def log_message(self, fmt: str, *args: Any) -> None:
@@ -128,8 +128,8 @@ def make_handler(cfg: Config):
         # -- POST ---------------------------------------------------------------
         def do_POST(self) -> None:  # noqa: N802
             try:
-                if not self._origin_ok() or self.headers.get("X-PaperFlow") != "1":
-                    self._json({"error": "forbidden (missing X-PaperFlow header)"}, 403)
+                if not self._origin_ok() or self.headers.get("X-ZotVault") != "1":
+                    self._json({"error": "forbidden (missing X-ZotVault header)"}, 403)
                     return
                 r = self.route
                 if r == "/api/add":
@@ -140,6 +140,8 @@ def make_handler(cfg: Config):
                     self._json(self._alert_action())
                 elif r == "/api/enrich":
                     self._json(self._enrich_bg())
+                elif r == "/api/analyze":
+                    self._json(self._analyze_bg())
                 else:
                     self._json({"error": "not found"}, 404)
             except Exception as exc:
@@ -161,12 +163,15 @@ def make_handler(cfg: Config):
                     "proxy_enabled": cfg.proxy_enabled,
                     "alerts_enabled": cfg.alerts_enabled,
                     "pending_alerts": len(state.alerts_list("pending")),
+                    "analysis_engine": cfg.analysis_engine,
+                    "analyses_today": state.analyses_today(),
+                    "analysis_limit": cfg.analysis_daily_limit,
                 }
             finally:
                 state.close()
 
         def _queue(self) -> Any:
-            from paperflow import analysis_queue
+            from zotvault import analysis_queue
 
             if cfg.papers_dir is None:
                 return {"error": "vault dir not configured"}
@@ -184,7 +189,7 @@ def make_handler(cfg: Config):
             return out
 
         def _search(self) -> Any:
-            from paperflow.search import search
+            from zotvault.search import search
 
             q = self._query()
             query = q.get("q", "").strip()
@@ -199,7 +204,7 @@ def make_handler(cfg: Config):
             return [r.to_dict() for r in results]
 
         def _add(self) -> Any:
-            from paperflow.zotero_writer import add_identifiers
+            from zotvault.zotero_writer import add_identifiers
 
             body = self._body()
             ids = body.get("identifiers") or []
@@ -221,7 +226,7 @@ def make_handler(cfg: Config):
                 state.close()
 
         def _alert_action(self) -> Any:
-            from paperflow import alerts as alerts_mod
+            from zotvault import alerts as alerts_mod
 
             body = self._body()
             alert_id = int(body.get("id", 0))
@@ -238,7 +243,7 @@ def make_handler(cfg: Config):
                 state.close()
 
         def _related(self) -> Any:
-            from paperflow import related as related_mod
+            from zotvault import related as related_mod
 
             citekey = self._query().get("citekey", "")
             state = State(cfg.state_db)
@@ -248,7 +253,7 @@ def make_handler(cfg: Config):
                 state.close()
 
         def _suggestions(self) -> Any:
-            from paperflow import synthesis as synthesis_mod
+            from zotvault import synthesis as synthesis_mod
 
             state = State(cfg.state_db)
             try:
@@ -262,7 +267,7 @@ def make_handler(cfg: Config):
 
             def job() -> None:
                 try:
-                    from paperflow import enrich, related, synthesis
+                    from zotvault import enrich, related, synthesis
 
                     state = State(cfg.state_db)
                     try:
@@ -277,8 +282,18 @@ def make_handler(cfg: Config):
                 finally:
                     _BG_LOCK.release()
 
-            threading.Thread(target=job, daemon=True, name="paperflow-enrich").start()
+            threading.Thread(target=job, daemon=True, name="zotvault-enrich").start()
             return {"ok": True, "message": "enrichment started"}
+
+        def _analyze_bg(self) -> Any:
+            from zotvault import analyze
+
+            if cfg.analysis_engine == "none":
+                return {"ok": False,
+                        "message": "[analysis] engine = none — configure an engine in config.toml"}
+            if analyze.run_batch_bg(cfg):
+                return {"ok": True, "message": "analysis started ({})".format(cfg.analysis_engine)}
+            return {"ok": False, "message": "an analysis batch is already running"}
 
         def _trace(self) -> Any:
             state = State(cfg.state_db)
@@ -303,5 +318,5 @@ def start_in_thread(cfg: Config) -> Optional[ThreadingHTTPServer]:
     except OSError as exc:
         log.error("web dashboard disabled: %s", exc)
         return None
-    threading.Thread(target=server.serve_forever, daemon=True, name="paperflow-web").start()
+    threading.Thread(target=server.serve_forever, daemon=True, name="zotvault-web").start()
     return server

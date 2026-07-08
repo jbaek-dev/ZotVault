@@ -5,10 +5,10 @@ Strategy (inherited from the proven vault scripts):
   Zotero's live DB is locked while the app runs; the copy is always safe.
 - Citekeys come from Better BibTeX's JSON-RPC endpoint on the local Zotero
   HTTP server (item.citationkey). Fallback: "Citation Key: X" in the Extra
-  field. PaperFlow NEVER invents citekeys silently — items without one are
-  retried on later cycles and surfaced via `paperflow status`.
+  field. ZotVault NEVER invents citekeys silently — items without one are
+  retried on later cycles and surfaced via `zotvault status`.
 
-PaperFlow never writes to zotero.sqlite or Zotero's storage/ directory.
+ZotVault never writes to zotero.sqlite or Zotero's storage/ directory.
 """
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class ZoteroReader:
         src = self.data_dir / "zotero.sqlite"
         if not src.exists():
             raise FileNotFoundError("zotero.sqlite not found in {}".format(self.data_dir))
-        self._tmpdir = tempfile.mkdtemp(prefix="paperflow_zt_")
+        self._tmpdir = tempfile.mkdtemp(prefix="zotvault_zt_")
         for suffix in ("", "-wal", "-journal"):
             s = self.data_dir / ("zotero.sqlite" + suffix)
             if s.exists():

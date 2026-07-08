@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.note_renderer import render_note, write_note
-from paperflow.zotero_reader import RawItem
+from zotvault.note_renderer import render_note, write_note
+from zotvault.zotero_reader import RawItem
 
 
 def make_item(**kw):

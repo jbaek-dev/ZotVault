@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.config import load_config, parse_toml_mini
+from zotvault.config import load_config, parse_toml_mini
 
 
 class TestMiniToml(unittest.TestCase):
@@ -46,11 +46,11 @@ class TestLoadConfig(unittest.TestCase):
             )
             old = dict(os.environ)
             try:
-                os.environ.pop("PAPERFLOW_VAULT_DIR", None)
+                os.environ.pop("ZOTVAULT_VAULT_DIR", None)
                 cfg = load_config(str(cfg_path))
                 self.assertEqual(cfg.poll_interval_sec, 42)
                 self.assertEqual(str(cfg.vault_dir), td)
-                os.environ["PAPERFLOW_VAULT_DIR"] = td + "/other"
+                os.environ["ZOTVAULT_VAULT_DIR"] = td + "/other"
                 cfg2 = load_config(str(cfg_path))
                 self.assertTrue(str(cfg2.vault_dir).endswith("/other"))
             finally:
@@ -58,7 +58,7 @@ class TestLoadConfig(unittest.TestCase):
                 os.environ.update(old)
 
     def test_missing_file_defaults(self):
-        cfg = load_config("/nonexistent/paperflow.toml")
+        cfg = load_config("/nonexistent/zotvault.toml")
         self.assertIsNone(cfg.vault_dir)
         self.assertEqual(cfg.poll_interval_sec, 120)
 

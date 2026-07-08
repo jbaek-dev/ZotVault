@@ -4,7 +4,7 @@ Design constraints (deliberate):
 - Only used AFTER open-access sources fail.
 - Separate, stricter budget (proxy_daily_limit) + longer delay between requests.
   Systematic bulk downloading violates library license agreements and gets
-  whole universities blocked by publishers — PaperFlow refuses to be that tool.
+  whole universities blocked by publishers — ZotVault refuses to be that tool.
 - Authentication is NOT automated (Duo/2FA can't be headless anyway). Instead,
   reuse the session cookies of a browser where you are already logged in:
   export a Netscape cookies.txt and point [proxy] cookie_file at it.
@@ -29,12 +29,12 @@ import urllib.request
 from pathlib import Path
 from typing import Optional, Tuple
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
-from paperflow.zotero_reader import RawItem
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
+from zotvault.zotero_reader import RawItem
 
-log = logging.getLogger("paperflow.proxy")
+log = logging.getLogger("zotvault.proxy")
 
 _META_PDF_RES = [
     re.compile(r'<meta[^>]+name=["\']citation_pdf_url["\'][^>]+content=["\']([^"\']+)["\']', re.I),
@@ -62,7 +62,7 @@ def load_cookiejar(cookie_file: str) -> http.cookiejar.MozillaCookieJar:
 def build_opener(jar: http.cookiejar.CookieJar) -> urllib.request.OpenerDirector:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     opener.addheaders = [
-        ("User-Agent", "Mozilla/5.0 (Macintosh) PaperFlow/{}".format(__version__)),
+        ("User-Agent", "Mozilla/5.0 (Macintosh) ZotVault/{}".format(__version__)),
         ("Accept", "application/pdf,text/html,application/xhtml+xml,*/*"),
     ]
     return opener

@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.alerts import store_entries
-from paperflow.state import State
+from zotvault.alerts import store_entries
+from zotvault.state import State
 
 
 def entry(aid, published="2026-07-04", title="T"):

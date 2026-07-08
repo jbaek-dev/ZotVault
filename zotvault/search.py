@@ -15,10 +15,10 @@ import urllib.request
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-from paperflow import __version__
-from paperflow.config import Config
-from paperflow.state import State
-from paperflow.zotero_writer import parse_arxiv_atom
+from zotvault import __version__
+from zotvault.config import Config
+from zotvault.state import State
+from zotvault.zotero_writer import parse_arxiv_atom
 
 
 @dataclass
@@ -46,7 +46,7 @@ class SearchResult:
 
 
 def _get(url: str, timeout: int = 20, headers: Optional[Dict[str, str]] = None) -> bytes:
-    h = {"User-Agent": "PaperFlow/{} (local research tool)".format(__version__)}
+    h = {"User-Agent": "ZotVault/{} (local research tool)".format(__version__)}
     if headers:
         h.update(headers)
     req = urllib.request.Request(url, headers=h)
@@ -174,7 +174,7 @@ def lookup_identifier(query: str, timeout: int = 20) -> Optional[List[SearchResu
     Returns None when the query is not an identifier (-> keyword search),
     [] when it is one but could not be resolved, [one result] on success.
     """
-    from paperflow.zotero_writer import classify_identifier, resolve_arxiv, resolve_doi
+    from zotvault.zotero_writer import classify_identifier, resolve_arxiv, resolve_doi
 
     kind, norm = classify_identifier(query)
     if kind == "doi":

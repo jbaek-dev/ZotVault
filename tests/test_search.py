@@ -3,8 +3,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from paperflow.search import SearchResult, lookup_identifier, mark_in_library, parse_s2
-from paperflow.state import State
+from zotvault.search import SearchResult, lookup_identifier, mark_in_library, parse_s2
+from zotvault.state import State
 
 S2_DATA = {
     "data": [
@@ -72,7 +72,7 @@ class TestLookupIdentifier(unittest.TestCase):
             "publicationTitle": "Frontiers in Chemistry",
             "abstractNote": "abs",
         }
-        with mock.patch("paperflow.zotero_writer.resolve_doi", return_value=fake):
+        with mock.patch("zotvault.zotero_writer.resolve_doi", return_value=fake):
             rs = lookup_identifier("10.3389/fchem.2024.1425306")
         self.assertEqual(len(rs), 1)
         self.assertEqual(rs[0].title, "Exact Paper")
@@ -81,7 +81,7 @@ class TestLookupIdentifier(unittest.TestCase):
         self.assertEqual(rs[0].year, "2024")
 
     def test_doi_lookup_failure_returns_empty(self):
-        with mock.patch("paperflow.zotero_writer.resolve_doi", side_effect=OSError("down")):
+        with mock.patch("zotvault.zotero_writer.resolve_doi", side_effect=OSError("down")):
             self.assertEqual(lookup_identifier("10.1000/nonexistent.404"), [])
 
     def test_arxiv_lookup(self):
@@ -95,7 +95,7 @@ class TestLookupIdentifier(unittest.TestCase):
             "abstractNote": "abs",
             "_pdf_url": "https://arxiv.org/pdf/2405.01234",
         }
-        with mock.patch("paperflow.zotero_writer.resolve_arxiv", return_value=fake):
+        with mock.patch("zotvault.zotero_writer.resolve_arxiv", return_value=fake):
             rs = lookup_identifier("arXiv:2405.01234v2")
         self.assertEqual(len(rs), 1)
         self.assertEqual(rs[0].arxiv_id, "2405.01234")

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.proxy import (
+from zotvault.proxy import (
     extract_pdf_url,
     is_proxied,
     load_cookiejar,

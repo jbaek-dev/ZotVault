@@ -1,6 +1,6 @@
 import unittest
 
-from paperflow.related import blob_to_vec, cosine, top_similar, vec_to_blob
+from zotvault.related import blob_to_vec, cosine, top_similar, vec_to_blob
 
 
 class TestVectors(unittest.TestCase):
