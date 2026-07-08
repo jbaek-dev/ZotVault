@@ -1,12 +1,14 @@
 #!/bin/bash
-# Apply source edits to the installed PaperFlow.app WITHOUT rebuilding or
-# re-signing — so your Full Disk Access grant is preserved.
+# Apply source edits WITHOUT touching PaperFlow.app — the bundle (and its
+# signature, and therefore your Full Disk Access grant) stays frozen.
 #
 # What it does:
-#   1. rsync the current paperflow/ source into the app bundle
+#   1. rsync the current paperflow/ source to ~/.paperflow/app (the runtime
+#      code home the app's launcher loads via PYTHONPATH)
 #   2. restart the daemon so the new code is loaded
 #
-# Use this after editing code. Use build_app.sh only for icon/launcher changes.
+# Use this after every code edit. Use build_app.sh only for icon/launcher
+# changes (and re-grant FDA afterwards).
 #
 # Usage:  bash scripts/apply_edits.sh
 
@@ -17,10 +19,12 @@ APP="/Applications/PaperFlow.app"
 [ -d "$APP" ] || APP="$HOME/Applications/PaperFlow.app"
 [ -d "$APP" ] || { echo "PaperFlow.app not found — run scripts/build_app.sh first"; exit 1; }
 
+CODE_DIR="$HOME/.paperflow/app"
+mkdir -p "$CODE_DIR"
 /usr/bin/rsync -a --delete \
   --exclude '__pycache__' --exclude '*.pyc' \
-  "$REPO/paperflow" "$APP/Contents/Resources/"
-echo "synced source -> $APP"
+  "$REPO/paperflow" "$CODE_DIR/"
+echo "synced source -> $CODE_DIR"
 
 # restart the daemon (single-instance lock + launcher will respawn on next open)
 pkill -f "paperflow.cli daemon" 2>/dev/null || true

@@ -1,0 +1,114 @@
+{
+  "meta": {
+    "app": "PaperFlow",
+    "version": "0.5.0",
+    "purpose": "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect -> note -> PDF (OA-first) -> AI-analysis queue -> vault index, plus search/add, dashboard, alerts, citation graph, related papers, synthesis suggestions.",
+    "updated": "2026-07-08",
+    "note": "Lightweight orientation map for humans and AI agents. The CODE is the source of truth; regenerate/adjust this file whenever module-level structure changes. Read AGENTS.md first for the change protocol.",
+    "change_protocol": "propose-first: read AGENTS.md + this file + docs/ARCHITECTURE.md, submit a written plan (files to touch, invariants affected, tests), get user approval, then edit. Apply to the installed app with scripts/apply_edits.sh (never re-sign)."
+  },
+  "runtime": {
+    "language": "Python >= 3.9, standard library ONLY (zero runtime deps; keep it that way)",
+    "entry_points": {
+      "cli": "python3 -m paperflow.cli  (console script: paperflow)",
+      "daemon": "paperflow.cli daemon -> paperflow.daemon.run (poll loop + web thread + daily jobs)",
+      "app_bundle": "/Applications/PaperFlow.app — FROZEN ad-hoc-signed launcher (TCC grants bind to the signature; bundle is never modified). Code loads from ~/.paperflow/app via PYTHONPATH."
+    },
+    "install": {
+      "full_build": "scripts/build_app.sh (icon/launcher changes or fresh install; changes the signature -> user must re-grant Full Disk Access afterwards)",
+      "code_edits": "scripts/apply_edits.sh (rsync repo -> ~/.paperflow/app + daemon restart; bundle untouched, FDA grant survives) — DEFAULT way to ship changes"
+    },
+    "tests": "python3 -m unittest discover -s tests  (network-free; 47+)"
+  },
+  "config": {
+    "path": "~/.paperflow/config.toml (override: $PAPERFLOW_CONFIG; env overrides PAPERFLOW_*)",
+    "loader": "paperflow/config.py (tomllib on 3.11+, built-in mini parser on 3.9)",
+    "sections": ["zotero", "vault", "pipeline", "pdf", "web", "search", "proxy", "alerts", "ollama", "features", "app"],
+    "rule": "NOTHING user-specific is hardcoded in the package; personal values live only in this file."
+  },
+  "data_stores": {
+    "state_db": {
+      "path": "~/.paperflow/state.db (sqlite, WAL)",
+      "tables": {
+        "items": "one row per Zotero parent item: item_id, item_key, citekey, doi, arxiv_id, note_status, pdf_status/path, analysis_done, citation_count, s2_id, enriched_at, deleted, retries",
+        "kv": "watermarks & scheduling (last_run, doi_backfill_done, alerts_last_day, enrich_last_ts, proxy_dl_<day>)",
+        "trace": "append-only audit of every automatic action",
+        "downloads": "per-day OA download counter (budget)",
+        "alerts": "arXiv digest inbox: arxiv_id, title, matched, status pending|approved|dismissed|added",
+        "embeddings": "citekey -> float32 blob (Ollama nomic-embed-text), src_mtime for staleness",
+        "citations": "in-library edges citekey->citekey (from Semantic Scholar references)"
+      }
+    },
+    "pdf_dir": "~/.paperflow/pdfs/<citekey>.pdf (PaperFlow-downloaded PDFs; NEVER writes into Zotero storage/)",
+    "vault": {
+      "papers_dir": "<vault>/30_Resources/Papers/zotero/<citekey>/ (configurable via vault.papers_subdir)",
+      "paper_note": "<citekey>.md — created once, NEVER rewritten afterwards",
+      "analysis_note": "<citekey>_*_analysis.md — written by the user's AI workflow, only DETECTED here",
+      "auto_notes_owned_by_paperflow": [
+        "30_Resources/Papers/Citation_Graph.md",
+        "30_Resources/Papers/Related_Suggestions.md",
+        "30_Resources/Papers/syntheses/_Synthesis_Suggestions.md"
+      ],
+      "index_log": "index.md progress counters patched via strict regex only; log.md append-only"
+    }
+  },
+  "modules": [
+    {"file": "paperflow/config.py", "purpose": "defaults + TOML + env config loading", "key": ["Config", "load_config", "parse_toml_mini", "CONFIG_TEMPLATE"]},
+    {"file": "paperflow/state.py", "purpose": "sqlite state + audit trace + budgets + migrations", "key": ["State", "_MIGRATIONS"]},
+    {"file": "paperflow/zotero_reader.py", "purpose": "READ-ONLY Zotero: sqlite snapshot copy, items/fields/creators/pdf paths, Better BibTeX JSON-RPC citekeys, Extra-field fallback", "key": ["ZoteroReader", "RawItem"]},
+    {"file": "paperflow/zotero_writer.py", "purpose": "add items: identifier classification, Crossref/DataCite/arXiv resolvers, optional translation-server, POST /connector/saveItems, duplicate detection", "key": ["classify_identifier", "resolve_doi", "resolve_arxiv", "parse_arxiv_atom", "save_items_to_zotero", "add_identifiers"]},
+    {"file": "paperflow/note_renderer.py", "purpose": "Papers_Zotero_v3-compatible note creation; atomic write; skip-if-exists", "key": ["render_note", "write_note"]},
+    {"file": "paperflow/pdf_resolver.py", "purpose": "PDF chain: zotero attachment -> cache -> arXiv -> Unpaywall -> proxy(M3); budgets+delays", "key": ["resolve", "find_arxiv_id", "unpaywall_pdf_urls", "download_pdf"]},
+    {"file": "paperflow/proxy.py", "purpose": "opt-in licensed fallback: EZproxy {url} template + browser cookies.txt session, citation_pdf_url heuristic, strict budget", "key": ["fetch_licensed_pdf", "proxied_url", "extract_pdf_url", "load_cookiejar"]},
+    {"file": "paperflow/analysis_queue.py", "purpose": "which citekey folders lack *_analysis.md; completion detection source", "key": ["scan", "pending", "progress", "analysis_file_for"]},
+    {"file": "paperflow/indexer.py", "purpose": "vault index.md counter patch (strict regex) + log.md append", "key": ["update_progress", "append_log", "PROGRESS_RE"]},
+    {"file": "paperflow/pipeline.py", "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records", "key": ["run_once", "RunSummary", "_process_item"]},
+    {"file": "paperflow/daemon.py", "purpose": "poll loop, pid lock, signals, rotating logs, web thread, daily jobs (alerts fetch, enrich/related/synthesis)", "key": ["run", "_daily_jobs", "setup_logging"]},
+    {"file": "paperflow/webapp.py", "purpose": "stdlib ThreadingHTTPServer JSON API + static dashboard; RUN_LOCK shared with daemon", "key": ["serve", "start_in_thread", "make_handler", "RUN_LOCK"]},
+    {"file": "paperflow/static/index.html", "purpose": "single-file dashboard UI (fetch-based; no framework)"},
+    {"file": "paperflow/search.py", "purpose": "arXiv/S2/Crossref search -> SearchResult, in-library annotation", "key": ["search", "search_arxiv", "search_semantic_scholar", "search_crossref", "mark_in_library"]},
+    {"file": "paperflow/alerts.py", "purpose": "arXiv keyword digest -> inbox; approve -> zotero_writer (propose-don't-execute)", "key": ["fetch", "store_entries", "approve"]},
+    {"file": "paperflow/enrich.py", "purpose": "Semantic Scholar citationCount + in-library citation edges; Citation_Graph.md regeneration", "key": ["run", "s2_fetch", "write_citation_graph_note"]},
+    {"file": "paperflow/related.py", "purpose": "Ollama embeddings over analysis notes; cosine top-k; Related_Suggestions.md", "key": ["refresh", "ollama_embed", "top_similar", "related_for", "write_note"]},
+    {"file": "paperflow/synthesis.py", "purpose": "greedy leader clustering of analyzed-but-unsynthesized papers; _Synthesis_Suggestions.md", "key": ["suggest", "leader_cluster", "covered_citekeys", "label_for"]},
+    {"file": "paperflow/cli.py", "purpose": "all commands + doctor checks + launchd plist", "key": ["main", "build_parser", "_checks"]}
+  ],
+  "http_api": {
+    "base": "http://127.0.0.1:8377 (localhost only, no auth — do not expose)",
+    "endpoints": [
+      "GET /", "GET /api/status", "GET /api/queue", "GET /api/search?q&source&max",
+      "POST /api/add {identifiers[],dry_run}", "POST /api/run-once",
+      "GET /api/alerts?status", "POST /api/alerts/action {id,action}",
+      "GET /api/related?citekey", "GET /api/suggestions", "POST /api/enrich", "GET /api/trace?limit"
+    ],
+    "consumers": ["dashboard UI", "Polaris tools (polaris/tools/paperflow_tools.py in the Polaris repo)", "any local agent"]
+  },
+  "external_apis": {
+    "zotero_local": "127.0.0.1:23119 — /connector/ping, /connector/saveItems (write channel), /better-bibtex/json-rpc (citekeys)",
+    "crossref": "api.crossref.org (DOI metadata, search)",
+    "datacite": "api.datacite.org (DOI fallback)",
+    "arxiv": "export.arxiv.org/api (resolve, search, alerts)",
+    "unpaywall": "api.unpaywall.org (OA locations; needs email)",
+    "semantic_scholar": "api.semanticscholar.org/graph/v1 (search, citations/references; optional key; backs off on 429)",
+    "ollama": "127.0.0.1:11434 /api/embeddings (nomic-embed-text; graceful skip when down)"
+  },
+  "invariants": [
+    "NEVER write to zotero.sqlite or Zotero storage/ (reads via temp snapshot; adds via Zotero's own connector endpoint)",
+    "NEVER rewrite an existing paper note (My Synthesis is user-owned); only the three AUTO notes are regenerated",
+    "NO delete code path against the vault; Zotero deletions only mark state",
+    "index.md touched only via PROGRESS_RE; log.md append-only; dry_run must skip all writes",
+    "network etiquette: sequential, delayed, per-day budgets (OA + separate stricter proxy budget), back off on 429",
+    "adding papers requires explicit user selection (propose-don't-execute); alerts inbox never auto-adds",
+    "zero runtime dependencies; Python 3.9 compatible syntax",
+    "no personal data in code — config only",
+    "every automatic action writes a trace row"
+  ],
+  "extension_points": [
+    {"name": "pdf source", "how": "add a candidate producer in pdf_resolver.resolve chain (respect budgets/delays)"},
+    {"name": "analysis engine automation", "how": "queue is the contract: spawn `claude -p` (or any LLM) on analysis_queue.pending items; completion is auto-detected by file appearance"},
+    {"name": "reference explorer (BACKLOG, user-floated)", "how": "given DOI/arXiv id, enrich.s2_fetch with references.title,externalIds -> list with in-library marks -> user-selected adds. Separate dashboard view; do NOT pollute the time-based alerts inbox"},
+    {"name": "dashboard section", "how": "add endpoint in webapp.py + section in static/index.html"},
+    {"name": "new agent bridge", "how": "consume the localhost API like polaris/tools/paperflow_tools.py"},
+    {"name": "search source", "how": "add search_<source>() in search.py returning SearchResult, wire into search()"}
+  ]
+}

@@ -6,16 +6,23 @@
 #      background (single-instance lock makes double-launch safe).
 #   2. Open the dashboard in the default browser.
 #
-# The paperflow code is COPIED into the app bundle (Contents/Resources) and
-# loaded via PYTHONPATH. Why: /Applications is not TCC-protected, so a
-# GUI-launched (double-clicked) app can always import the code WITHOUT Full
-# Disk Access. Only the vault (Obsidian, under a protected path) needs FDA,
-# which you grant once.
-#
-# After editing the source, apply changes with the fast, no-resign helper:
-#     bash scripts/apply_edits.sh      # rsync code into the app, restart daemon
-# That preserves the FDA grant (no re-sign). Re-run THIS full build only for
-# icon/launcher changes or a fresh install.
+# macOS TCC/identity design (hard-won — do not "simplify" this):
+#   * The app must be able to hold a Full Disk Access grant (the Obsidian
+#     vault lives in an iCloud container). TCC binds grants to the code
+#     identity of the RUNNING process:
+#       - unsigned bundles           -> cannot hold grants at all
+#       - bash-script main executables -> process identity is /bin/bash,
+#         not the app, so grants never apply
+#     Therefore the app is an **AppleScript applet** (a real Mach-O main
+#     binary carrying the bundle identity) that runs Resources/launch.sh via
+#     `do shell script` — children inherit the app's TCC identity.
+#   * The bundle is ad-hoc signed and then FROZEN. Paperflow code is NOT in
+#     the bundle: it lives in ~/.paperflow/app (non-TCC path, PYTHONPATH).
+#     Code edits ship with scripts/apply_edits.sh (rsync + daemon restart),
+#     which never touches the bundle -> the FDA grant survives.
+#   * Re-running THIS script changes the signature: afterwards, remove and
+#     re-add the app in System Settings -> Privacy & Security -> Full Disk
+#     Access. Only needed for icon/launcher changes.
 #
 # Usage:  bash scripts/build_app.sh [/Applications]
 
@@ -26,101 +33,97 @@ DEST_DIR="${1:-/Applications}"
 [ -w "$DEST_DIR" ] || DEST_DIR="$HOME/Applications"
 mkdir -p "$DEST_DIR"
 APP="$DEST_DIR/PaperFlow.app"
+PB=/usr/libexec/PlistBuddy
 
 echo "building $APP"
 echo "  source: $REPO"
 
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-# ---- bundle the code (self-contained; loads without FDA) --------------------
+# ---- 1. sync code to its runtime home (outside bundle, outside TCC) ---------
+CODE_DIR="$HOME/.paperflow/app"
+mkdir -p "$CODE_DIR"
 /usr/bin/rsync -a --delete \
   --exclude '__pycache__' --exclude '*.pyc' \
-  "$REPO/paperflow" "$APP/Contents/Resources/"
-echo "  bundled: paperflow/ -> Contents/Resources/"
+  "$REPO/paperflow" "$CODE_DIR/"
+echo "  code: -> $CODE_DIR/paperflow"
 
-# ---- icon ------------------------------------------------------------------
-if [ -d "$REPO/assets/icon.iconset" ]; then
-  iconutil -c icns "$REPO/assets/icon.iconset" -o "$APP/Contents/Resources/AppIcon.icns"
-fi
+# ---- 2. compile the AppleScript applet (real Mach-O identity holder) --------
+TMP_AS="$(mktemp -t paperflow_main).applescript"
+cat > "$TMP_AS" << 'AS'
+set sh to POSIX path of (path to resource "launch.sh")
+do shell script "/bin/bash " & quoted form of sh
+AS
+rm -rf "$APP"
+/usr/bin/osacompile -o "$APP" "$TMP_AS"
+rm -f "$TMP_AS"
 
-# ---- Info.plist -------------------------------------------------------------
-cat > "$APP/Contents/Info.plist" << PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleName</key><string>PaperFlow</string>
-    <key>CFBundleDisplayName</key><string>PaperFlow</string>
-    <key>CFBundleIdentifier</key><string>com.paperflow.launcher</string>
-    <key>CFBundleVersion</key><string>0.5.0</string>
-    <key>CFBundleShortVersionString</key><string>0.5.0</string>
-    <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleExecutable</key><string>PaperFlow</string>
-    <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>LSMinimumSystemVersion</key><string>11.0</string>
-    <key>LSUIElement</key><true/>
-    <key>NSHighResolutionCapable</key><true/>
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>PaperFlow reads and writes paper notes in your Obsidian vault.</string>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>Only needed if your vault lives on the Desktop.</string>
-    <key>NSDownloadsFolderUsageDescription</key>
-    <string>Only needed if your vault lives in Downloads.</string>
-</dict>
-</plist>
-PLIST
-
-# ---- launcher ----------------------------------------------------------------
-cat > "$APP/Contents/MacOS/PaperFlow" << 'LAUNCHER'
+# ---- 3. launcher shell logic (inside the frozen bundle) ----------------------
+cat > "$APP/Contents/Resources/launch.sh" << 'LAUNCH'
 #!/bin/bash
-# Self-contained launcher: code is bundled in ../Resources/paperflow.
-HERE="$(cd "$(dirname "$0")" && pwd)"
-export PYTHONPATH="$(cd "$HERE/../Resources" && pwd)"
+# PaperFlow launcher body. Runs with the app's TCC identity via the applet.
+export PYTHONPATH="$HOME/.paperflow/app"
 PY=/usr/bin/python3
 CONF="$HOME/.paperflow/config.toml"
 PORT=$(grep -m1 -E '^[[:space:]]*port[[:space:]]*=' "$CONF" 2>/dev/null | grep -oE '[0-9]+' | head -1)
 PORT="${PORT:-8377}"
 URL="http://127.0.0.1:${PORT}"
 
-fail() {
-  /usr/bin/osascript -e "display alert \"PaperFlow\" message \"$1\" as critical" >/dev/null 2>&1
-  exit 1
+alertq() {
+  /usr/bin/osascript -e "display alert \"PaperFlow\" message \"$1\"" >/dev/null 2>&1
+  exit 0
 }
 
-# First run: create a starter config so `doctor`/daemon have somewhere to look.
+[ -d "$HOME/.paperflow/app/paperflow" ] || alertq "code not found in ~/.paperflow/app — run scripts/build_app.sh (or apply_edits.sh) from the repo"
+
+# First run: create a starter config, open it, and stop here.
 if [ ! -f "$CONF" ]; then
   mkdir -p "$HOME/.paperflow"
   "$PY" -m paperflow.cli init >/dev/null 2>&1 || true
-  /usr/bin/osascript -e 'display alert "PaperFlow — first run" message "A starter config was created at ~/.paperflow/config.toml. Set your vault path (and Unpaywall email), then click the icon again." as informational' >/dev/null 2>&1
-  exec /usr/bin/open -e "$CONF"
+  /usr/bin/open -e "$CONF" 2>/dev/null
+  alertq "First run: a starter config was created at ~/.paperflow/config.toml. Set your vault path (and Unpaywall email), then click the icon again."
 fi
 
 up() { /usr/bin/curl -s -m 1 -o /dev/null "$URL/api/status"; }
 
 if ! up; then
-  cd "$HOME"
   /usr/bin/nohup "$PY" -m paperflow.cli daemon >> "$HOME/.paperflow/launcher.log" 2>&1 &
   ok=""
   for _ in $(seq 1 40); do
     sleep 0.5
     if up; then ok=1; break; fi
   done
-  [ -n "$ok" ] || fail "daemon did not come up — see ~/.paperflow/paperflow.log"
+  [ -n "$ok" ] || alertq "daemon did not come up — see ~/.paperflow/paperflow.log"
 fi
 
-exec /usr/bin/open "$URL"
-LAUNCHER
-chmod +x "$APP/Contents/MacOS/PaperFlow"
+/usr/bin/open "$URL"
+exit 0
+LAUNCH
+chmod +x "$APP/Contents/Resources/launch.sh"
 
-# NOTE: intentionally NOT code-signing. An ad-hoc signature gets a fresh hash
-# on every build, which resets the app's TCC (Full Disk Access) grant. Leaving
-# the locally-built app unsigned makes macOS key the grant by bundle path +
-# identifier, so your one-time FDA grant survives future rebuilds. (No
-# Gatekeeper prompt: locally-built bundles carry no quarantine attribute.)
+# ---- 4. bundle metadata -------------------------------------------------------
+PLIST="$APP/Contents/Info.plist"
+set_or_add() {  # key type value
+  $PB -c "Set :$1 $3" "$PLIST" 2>/dev/null || $PB -c "Add :$1 $2 $3" "$PLIST"
+}
+set_or_add CFBundleIdentifier string com.paperflow.launcher
+set_or_add CFBundleName string PaperFlow
+set_or_add CFBundleDisplayName string PaperFlow
+set_or_add CFBundleShortVersionString string 0.5.0
+set_or_add CFBundleVersion string 0.5.0
+set_or_add LSUIElement bool true
+set_or_add LSMinimumSystemVersion string 11.0
+set_or_add NSDocumentsFolderUsageDescription string "PaperFlow reads and writes paper notes in your Obsidian vault."
 
-# refresh LaunchServices registration so the new build launches cleanly
+# ---- 5. icon (osacompile names it applet.icns) --------------------------------
+if [ -d "$REPO/assets/icon.iconset" ]; then
+  iconutil -c icns "$REPO/assets/icon.iconset" -o "$APP/Contents/Resources/applet.icns"
+fi
+
+# ---- 6. sign LAST, then freeze -------------------------------------------------
+codesign --force --deep -s - "$APP"
+echo "  signed (ad-hoc, frozen — do not modify the bundle after this)"
+
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
   -f "$APP" 2>/dev/null || true
 
 echo "done: $APP"
+echo "REMINDER: (re)grant Full Disk Access to this app now (remove old entry, add this one)."

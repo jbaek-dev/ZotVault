@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DEFAULT_CONFIG_PATH = "~/.paperflow/config.toml"
+APP_CODE_DIR = "~/.paperflow/app"  # where the launcher loads code from (see scripts/build_app.sh)
 
 DEFAULT_ITEM_TYPES = [
     "journalArticle",
