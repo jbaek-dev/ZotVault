@@ -313,6 +313,9 @@ def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
     try:
         results = search(args.query, args.source or cfg.search_default_source, cfg, state,
                          args.max)
+    except Exception as exc:
+        _print("❌ {}".format(exc))
+        return 1
     finally:
         state.close()
     if args.json:

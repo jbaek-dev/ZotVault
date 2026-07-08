@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -109,7 +110,15 @@ def search_semantic_scholar(query: str, max_results: int = 20, api_key: str = ""
            "&fields=title,abstract,year,venue,externalIds,citationCount,openAccessPdf,authors"
            ).format(urllib.parse.quote(query), max_results)
     headers = {"x-api-key": api_key} if api_key else None
-    data = json.loads(_get(url, timeout, headers).decode("utf-8"))
+    try:
+        data = json.loads(_get(url, timeout, headers).decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429:
+            raise RuntimeError(
+                "Semantic Scholar rate limit (shared free tier) — wait ~1 min and retry, "
+                "use source=arxiv/crossref, or set [search] semantic_scholar_api_key"
+            )
+        raise
     return parse_s2(data)
 
 
@@ -138,6 +147,56 @@ def search_crossref(query: str, max_results: int = 20, timeout: int = 20) -> Lis
 
 
 # ---------------------------------------------------------------------------
+# direct identifier lookup (DOI / arXiv id typed into the search box)
+# ---------------------------------------------------------------------------
+
+def _item_to_result(item: dict, source: str) -> SearchResult:
+    creators = item.get("creators") or []
+    names = []
+    for c in creators[:6]:
+        n = " ".join(x for x in (c.get("firstName"), c.get("lastName")) if x)
+        if n:
+            names.append(n)
+    return SearchResult(
+        source=source,
+        title=item.get("title", ""),
+        authors=", ".join(names) + (" et al." if len(creators) > 6 else ""),
+        year=(item.get("date") or "")[:4],
+        venue=item.get("publicationTitle") or item.get("repository", "") or "",
+        abstract=(item.get("abstractNote") or "")[:600],
+        doi=(item.get("DOI") or "").lower(),
+    )
+
+
+def lookup_identifier(query: str, timeout: int = 20) -> Optional[List[SearchResult]]:
+    """If the query IS an identifier, resolve it directly.
+
+    Returns None when the query is not an identifier (-> keyword search),
+    [] when it is one but could not be resolved, [one result] on success.
+    """
+    from paperflow.zotero_writer import classify_identifier, resolve_arxiv, resolve_doi
+
+    kind, norm = classify_identifier(query)
+    if kind == "doi":
+        try:
+            item = resolve_doi(norm, timeout)
+        except Exception:
+            return []
+        r = _item_to_result(item, "doi-lookup")
+        r.doi = r.doi or norm.lower()
+        return [r] if r.title else []
+    if kind == "arxiv":
+        try:
+            item = resolve_arxiv(norm, timeout)
+        except Exception:
+            return []
+        r = _item_to_result(item, "arxiv-lookup")
+        r.arxiv_id = norm.lower().split("v")[0]
+        r.venue = r.venue or "arXiv"
+        r.pdf_url = item.get("_pdf_url", "")
+        return [r] if r.title else []
+    return None  # not an identifier (plain keywords or a URL)
+
 
 def mark_in_library(results: List[SearchResult], state: State) -> None:
     dois = state.doi_map()
@@ -151,6 +210,12 @@ def mark_in_library(results: List[SearchResult], state: State) -> None:
 
 def search(query: str, source: str, cfg: Config, state: Optional[State] = None,
            max_results: Optional[int] = None) -> List[SearchResult]:
+    # A DOI / arXiv id beats keyword search regardless of the selected source.
+    hits = lookup_identifier(query)
+    if hits is not None:
+        if state is not None:
+            mark_in_library(hits, state)
+        return hits
     n = max_results or cfg.search_max_results
     if source in ("s2", "semanticscholar"):
         results = search_semantic_scholar(query, n, cfg.s2_api_key)

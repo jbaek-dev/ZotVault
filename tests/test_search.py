@@ -1,8 +1,9 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from paperflow.search import SearchResult, mark_in_library, parse_s2
+from paperflow.search import SearchResult, lookup_identifier, mark_in_library, parse_s2
 from paperflow.state import State
 
 S2_DATA = {
@@ -55,6 +56,51 @@ class TestInLibrary(unittest.TestCase):
             self.assertEqual(rs[0].in_library, "Mak2012")
             self.assertEqual(rs[1].in_library, "Kim2024")
             self.assertIsNone(rs[2].in_library)
+
+
+class TestLookupIdentifier(unittest.TestCase):
+    def test_keywords_return_none(self):
+        self.assertIsNone(lookup_identifier("valley polarization dynamics"))
+
+    def test_doi_lookup(self):
+        fake = {
+            "itemType": "journalArticle",
+            "title": "Exact Paper",
+            "creators": [{"creatorType": "author", "firstName": "A", "lastName": "Kim"}],
+            "date": "2024-06-01",
+            "DOI": "10.3389/fchem.2024.1425306",
+            "publicationTitle": "Frontiers in Chemistry",
+            "abstractNote": "abs",
+        }
+        with mock.patch("paperflow.zotero_writer.resolve_doi", return_value=fake):
+            rs = lookup_identifier("10.3389/fchem.2024.1425306")
+        self.assertEqual(len(rs), 1)
+        self.assertEqual(rs[0].title, "Exact Paper")
+        self.assertEqual(rs[0].doi, "10.3389/fchem.2024.1425306")
+        self.assertEqual(rs[0].source, "doi-lookup")
+        self.assertEqual(rs[0].year, "2024")
+
+    def test_doi_lookup_failure_returns_empty(self):
+        with mock.patch("paperflow.zotero_writer.resolve_doi", side_effect=OSError("down")):
+            self.assertEqual(lookup_identifier("10.1000/nonexistent.404"), [])
+
+    def test_arxiv_lookup(self):
+        fake = {
+            "itemType": "preprint",
+            "title": "ArXiv Paper",
+            "creators": [{"creatorType": "author", "firstName": "B", "lastName": "Lee"}],
+            "date": "2024-05-02",
+            "DOI": "",
+            "repository": "arXiv",
+            "abstractNote": "abs",
+            "_pdf_url": "https://arxiv.org/pdf/2405.01234",
+        }
+        with mock.patch("paperflow.zotero_writer.resolve_arxiv", return_value=fake):
+            rs = lookup_identifier("arXiv:2405.01234v2")
+        self.assertEqual(len(rs), 1)
+        self.assertEqual(rs[0].arxiv_id, "2405.01234")
+        self.assertEqual(rs[0].source, "arxiv-lookup")
+        self.assertTrue(rs[0].pdf_url.endswith("2405.01234"))
 
 
 if __name__ == "__main__":
