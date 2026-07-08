@@ -2,7 +2,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from paperflow.proxy import extract_pdf_url, load_cookiejar, proxied_url
+from paperflow.proxy import (
+    extract_pdf_url,
+    is_proxied,
+    load_cookiejar,
+    pdf_url_candidates,
+    proxied_url,
+)
+
+TEMPLATE = "https://login.ezproxy.example.edu/login?url={url}"
 
 HTML = """<html><head>
 <meta name="citation_title" content="Some Paper">
@@ -15,6 +23,7 @@ HTML_REVERSED = """<html><head>
 
 COOKIES = """# Netscape HTTP Cookie File
 .ezproxy.example.edu\tTRUE\t/\tTRUE\t2082787200\tezproxy\tabc123
+.ezproxy.example.edu\tTRUE\t/\tTRUE\t0\tezproxyn\tsession456
 """
 
 
@@ -37,13 +46,32 @@ class TestProxy(unittest.TestCase):
         )
         self.assertIsNone(extract_pdf_url("<html></html>", "https://x/"))
 
+    def test_is_proxied(self):
+        self.assertTrue(is_proxied("https://login.ezproxy.example.edu/x", TEMPLATE))
+        self.assertTrue(is_proxied("https://journals-aps-org.login.ezproxy.example.edu/y", TEMPLATE))
+        self.assertFalse(is_proxied("https://onlinelibrary.wiley.com/doi/pdf/10.1/x", TEMPLATE))
+
+    def test_pdf_url_candidates(self):
+        cands = pdf_url_candidates("https://onlinelibrary.wiley.com/doi/pdf/10.1/x", TEMPLATE)
+        self.assertEqual(len(cands), 2)
+        self.assertIn("pdfdirect", cands[0])           # raw-file variant first
+        for c in cands:
+            self.assertTrue(c.startswith("https://login.ezproxy.example.edu/login?url="))
+        # already-proxied URLs are left alone
+        already = "https://pub-com.login.ezproxy.example.edu/a.pdf"
+        self.assertEqual(pdf_url_candidates(already, TEMPLATE), [already])
+
     def test_cookiejar(self):
         with tempfile.TemporaryDirectory() as td:
             p = Path(td) / "cookies.txt"
             p.write_text(COOKIES, encoding="utf-8")
             jar = load_cookiejar(str(p))
-            names = {c.name for c in jar}
-            self.assertIn("ezproxy", names)
+            by_name = {c.name: c for c in jar}
+            self.assertIn("ezproxy", by_name)
+            # session cookie (expiry=0) must be sendable: pinned to the future
+            self.assertIn("ezproxyn", by_name)
+            self.assertTrue(by_name["ezproxyn"].expires and by_name["ezproxyn"].expires > 0)
+            self.assertFalse(by_name["ezproxyn"].is_expired())
 
 
 if __name__ == "__main__":

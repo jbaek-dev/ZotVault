@@ -48,6 +48,14 @@ _MAX_HTML_BYTES = 3_000_000
 def load_cookiejar(cookie_file: str) -> http.cookiejar.MozillaCookieJar:
     jar = http.cookiejar.MozillaCookieJar(os.path.expanduser(cookie_file))
     jar.load(ignore_discard=True, ignore_expires=True)
+    # Browser-exported *session* cookies (the EZproxy ones) carry expiry=0.
+    # http.cookiejar loads them but refuses to SEND expired cookies — pin them
+    # to the far future; the proxy server decides real validity.
+    future = int(time.time()) + 365 * 24 * 3600
+    for c in jar:
+        if not c.expires:
+            c.expires = future
+            c.discard = False
     return jar
 
 
@@ -64,6 +72,29 @@ def proxied_url(url: str, template: str) -> str:
     if "{url}" not in template:
         raise ValueError("proxy url_template must contain {url}")
     return template.replace("{url}", urllib.parse.quote(url, safe=":/?&=%~._-"))
+
+
+def is_proxied(url: str, template: str) -> bool:
+    """True when the URL already lives on the proxy host (rewritten form)."""
+    proxy_host = urllib.parse.urlparse(template.replace("{url}", "x")).netloc.lower()
+    host = urllib.parse.urlparse(url).netloc.lower()
+    return bool(proxy_host) and (host == proxy_host or host.endswith("." + proxy_host))
+
+
+def pdf_url_candidates(pdf_url: str, template: str) -> list:
+    """Order of attempts for a citation_pdf_url, all routed through the proxy.
+
+    Publishers sometimes serve an HTML viewer at /doi/pdf/ — the Wiley-style
+    /doi/pdfdirect/ variant returns the raw file, so try it first.
+    """
+    variants = []
+    if "/doi/pdf/" in pdf_url:
+        variants.append(pdf_url.replace("/doi/pdf/", "/doi/pdfdirect/"))
+    variants.append(pdf_url)
+    out = []
+    for v in variants:
+        out.append(v if is_proxied(v, template) else proxied_url(v, template))
+    return out
 
 
 def extract_pdf_url(html: str, base_url: str) -> Optional[str]:
@@ -130,15 +161,16 @@ def fetch_licensed_pdf(item: RawItem, cfg: Config, state: State) -> Tuple[bool, 
             if "login" in final_url.lower() or "auth" in final_url.lower():
                 return False, "proxy session expired — re-export cookies.txt after logging in"
             return False, "no citation_pdf_url on landing page"
-        with opener.open(pdf_url, timeout=cfg.download_timeout_sec) as resp:
-            data = resp.read()
-        time.sleep(max(0.0, cfg.proxy_request_delay_sec))
-        if not _is_pdf(data):
-            return False, "citation_pdf_url did not return a PDF (session expired?)"
-        _save(dest, data)
-        state.record_proxy_download()
-        state.trace("pdf_downloaded_proxy", item.citekey, pdf_url[:200])
-        return True, str(dest)
+        for target in pdf_url_candidates(pdf_url, cfg.proxy_url_template):
+            with opener.open(target, timeout=cfg.download_timeout_sec) as resp:
+                data = resp.read()
+            time.sleep(max(0.0, cfg.proxy_request_delay_sec))
+            if _is_pdf(data):
+                _save(dest, data)
+                state.record_proxy_download()
+                state.trace("pdf_downloaded_proxy", item.citekey, target[:200])
+                return True, str(dest)
+        return False, "citation_pdf_url did not return a PDF (viewer-only or bot-blocked publisher)"
     except Exception as exc:
         return False, str(exc)[:200]
 
