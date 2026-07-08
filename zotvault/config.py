@@ -112,6 +112,20 @@ enrich_every_hours = 24
 enabled = true
 adopt_existing = false
 include_comments = true
+embed_images = true      # copy Zotero's rendered figure/area images into the vault
+# Rename color groups to match YOUR highlighting semantics, e.g.:
+# label_red = "Core Claims"
+# label_yellow = "Key Evidence"
+# label_green = "Background"
+
+[assist]
+# Cheap background helpers on a SMALL local model (strict JSON contract with
+# validation + one retry; purely advisory). First task: arXiv alert triage —
+# scores inbox candidates 0-10 for relevance so the dashboard sorts signal
+# from noise. Requires Ollama.
+enabled = false
+model = ""               # e.g. "qwen2.5:3b" — small and fast is the point
+max_per_run = 20
 
 [analysis]
 # Pluggable AI review engine. "none" = manual workflow (queue only). Others
@@ -198,6 +212,12 @@ class Config:
     annotations_adopt_existing: bool = False   # append block to unmarked notes
     annotations_include_comments: bool = True
     annotations_max_quote_chars: int = 600
+    annotations_embed_images: bool = True
+    annotations_labels: Dict[str, str] = field(default_factory=dict)
+    # background assists on a small local model (v0.9) — structured output
+    assist_enabled: bool = False
+    assist_model: str = ""              # small Ollama model, e.g. qwen2.5:3b
+    assist_max_per_run: int = 20
     # analysis engine (v0.6) — pluggable AI review
     analysis_engine: str = "none"       # none|ollama|claude-cli|openai-compatible|anthropic
     analysis_model: str = ""
@@ -407,6 +427,18 @@ def load_config(config_path: Optional[str] = None) -> Config:
                                                 cfg.annotations_include_comments))
     cfg.annotations_max_quote_chars = int(get("annotations", "max_quote_chars",
                                               cfg.annotations_max_quote_chars))
+    cfg.annotations_embed_images = bool(get("annotations", "embed_images",
+                                            cfg.annotations_embed_images))
+    labels = {}
+    for name in ("yellow", "red", "green", "blue", "purple", "magenta", "orange", "gray"):
+        val = str(get("annotations", "label_" + name, "")).strip()
+        if val:
+            labels[name] = val
+    cfg.annotations_labels = labels
+
+    cfg.assist_enabled = bool(get("assist", "enabled", cfg.assist_enabled))
+    cfg.assist_model = str(get("assist", "model", ""))
+    cfg.assist_max_per_run = int(get("assist", "max_per_run", cfg.assist_max_per_run))
 
     cfg.analysis_engine = str(get("analysis", "engine", cfg.analysis_engine)).lower()
     cfg.analysis_model = str(get("analysis", "model", ""))

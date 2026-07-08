@@ -81,6 +81,17 @@ enrich_every_hours = 24
 enabled = true
 adopt_existing = false
 include_comments = true
+embed_images = true      # copy Zotero's rendered figure/area images into the vault
+# label_red = "Core Claims"      # rename color groups to YOUR semantics
+# label_yellow = "Key Evidence"
+# label_green = "Background"
+
+[assist]
+# Cheap background helpers on a SMALL local model (strict JSON contract,
+# validated + one retry; purely advisory). First task: arXiv alert triage.
+enabled = false
+model = ""               # e.g. "qwen2.5:3b" — small and fast is the point
+max_per_run = 20
 
 [analysis]
 # Pluggable AI review engine. "none" = manual workflow (queue only). Others

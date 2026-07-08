@@ -77,6 +77,8 @@ _MIGRATIONS = [
     "ALTER TABLE items ADD COLUMN s2_id TEXT",
     "ALTER TABLE items ADD COLUMN enriched_at TEXT",
     "ALTER TABLE items ADD COLUMN annotations_hash TEXT",
+    "ALTER TABLE alerts ADD COLUMN score REAL",
+    "ALTER TABLE alerts ADD COLUMN reason TEXT",
 ]
 
 
@@ -268,6 +270,11 @@ class State:
 
     def alert_get(self, alert_id: int) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM alerts WHERE id=?", (alert_id,)).fetchone()
+
+    def alert_set_score(self, alert_id: int, score: float, reason: str) -> None:
+        self.conn.execute("UPDATE alerts SET score=?, reason=? WHERE id=?",
+                          (score, reason, alert_id))
+        self.conn.commit()
 
     def alert_set_status(self, alert_id: int, status: str) -> None:
         self.conn.execute("UPDATE alerts SET status=? WHERE id=?", (status, alert_id))

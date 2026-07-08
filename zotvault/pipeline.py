@@ -194,7 +194,12 @@ def _sync_annotations(ann_map, cfg: Config, state: State, summary: RunSummary) -
         if (row["annotations_hash"] or "") == new_hash:
             continue
         note_path = note_renderer.note_path_for(cfg.papers_dir, row["citekey"])
-        block = ann_mod.render_block(anns, {}, cfg)
+        images = {}
+        if anns and cfg.annotations_embed_images:
+            images = ann_mod.prepare_images(
+                anns, cfg.zotero_data_dir / "cache" / "library",
+                cfg.papers_dir / row["citekey"], row["citekey"], dry_run=cfg.dry_run)
+        block = ann_mod.render_block(anns, cfg, images)
         status = ann_mod.upsert_block(note_path, block,
                                       cfg.annotations_adopt_existing, dry_run=cfg.dry_run)
         if status in ("updated", "appended"):

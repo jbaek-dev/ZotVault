@@ -1,7 +1,7 @@
 {
   "meta": {
     "app": "ZotVault",
-    "version": "0.5.0",
+    "version": "0.9.0",
     "purpose": "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect -> note -> PDF (OA-first) -> AI-analysis queue -> vault index, plus search/add, dashboard, alerts, citation graph, related papers, synthesis suggestions.",
     "updated": "2026-07-08",
     "note": "Lightweight orientation map for humans and AI agents. The CODE is the source of truth; regenerate/adjust this file whenever module-level structure changes. Read AGENTS.md first for the change protocol.",
@@ -35,7 +35,9 @@
       "ollama",
       "features",
       "analysis",
-      "app"
+      "app",
+      "annotations",
+      "assist"
     ],
     "rule": "NOTHING user-specific is hardcoded in the package; personal values live only in this file."
   },
@@ -162,11 +164,16 @@
     },
     {
       "file": "zotvault/daemon.py",
-      "purpose": "poll loop, pid lock, signals, rotating logs, web thread, daily jobs (alerts fetch, enrich/related/synthesis)",
+      "purpose": "Poll loop: run_loop(cfg, stop_event, paused_event) core shared by CLI run() (signals+pid lock) and tray; daily jobs (alerts fetch -> assist triage, enrich); DB-signature skip",
       "key": [
         "run",
         "_daily_jobs",
         "setup_logging"
+      ],
+      "key_symbols": [
+        "run",
+        "run_loop",
+        "acquire_lock"
       ]
     },
     {
@@ -252,6 +259,44 @@
         "generate",
         "DEFAULT_PROMPT",
         "ENGINES"
+      ]
+    },
+    {
+      "file": "zotvault/i18n.py",
+      "purpose": "Message catalog (en default, ko opt-in via [app] language); t()/set_language",
+      "key_symbols": [
+        "t",
+        "set_language"
+      ]
+    },
+    {
+      "file": "zotvault/annotations.py",
+      "purpose": "Edit-safe Zotero annotation sync: render marker block (highlights grouped by color, user-renamable labels; figure/area images copied from Zotero cache and embedded), sha1 digest for idempotence, upsert only between zotvault:annotations markers",
+      "key_symbols": [
+        "render_block",
+        "upsert_block",
+        "prepare_images",
+        "color_label",
+        "digest",
+        "START_MARK",
+        "END_MARK"
+      ]
+    },
+    {
+      "file": "zotvault/assist.py",
+      "purpose": "Small-local-model structured output (Ollama format=json, temp 0, schema validation + one feedback retry, silent give-up). Task 1: alert triage scoring 0-10",
+      "key_symbols": [
+        "triage_alerts",
+        "triage_one",
+        "validate_triage"
+      ]
+    },
+    {
+      "file": "zotvault/tray.py",
+      "purpose": "Optional system tray (pystray/Pillow extras; import-guarded). Menu: Open Dashboard / Run now / Pause / Quit around daemon.run_loop",
+      "key_symbols": [
+        "main",
+        "TRAY_AVAILABLE"
       ]
     }
   ],

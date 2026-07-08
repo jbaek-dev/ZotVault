@@ -190,12 +190,13 @@ async function addSelected(){
 }
 
 async function refreshAlerts(){
-  const a = await api("/api/alerts?status=pending");
+  let a = await api("/api/alerts?status=pending");
+  a.sort((x,y)=>(y.score??-1)-(x.score??-1));
   $("alerts-count").textContent = a.length ? `(${a.length})` : "";
   $("alerts").innerHTML = a.length ? "<table>" + a.map(x=>`<tr>
-      <td class="title-cell"><b>${esc(x.title)}</b>
+      <td class="title-cell"><b>${x.score!=null?`<span class="pill ${x.score>=7?"ok":x.score>=4?"warn":""}">${x.score}/10</span> `:""}${esc(x.title)}</b>
         <div class="muted">${esc(x.authors)} · ${esc(x.published)} · arXiv:${esc(x.arxiv_id)}
-        · matched: ${esc(x.matched)}</div></td>
+        · matched: ${esc(x.matched)}${x.reason?` · 🤖 ${esc(x.reason)}`:""}</div></td>
       <td style="white-space:nowrap">
         <button class="small" onclick="alertAction(${x.id},'approve')">Add to Zotero</button>
         <button class="small ghost" onclick="alertAction(${x.id},'dismiss')">Dismiss</button>

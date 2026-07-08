@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from zotvault.annotations import END, START, digest, render_block, upsert_block
+from zotvault.annotations import END, START, digest, prepare_images, render_block, upsert_block
 from zotvault.config import Config
 from zotvault.zotero_reader import Annotation
 
@@ -21,7 +21,7 @@ class TestRenderAndDigest(unittest.TestCase):
     def test_render_groups_by_color_in_palette_order(self):
         block = render_block(
             [ann(key="Y", color="#ffd400"), ann(key="R", color="#ff6666"),
-             ann(key="G", color="#5fb236")], {}, self.cfg)
+             ann(key="G", color="#5fb236")], self.cfg)
         self.assertTrue(block.startswith(START))
         self.assertTrue(block.endswith(END))
         y, r, g = block.index("🟡 Yellow"), block.index("🔴 Red"), block.index("🟢 Green")
@@ -30,19 +30,40 @@ class TestRenderAndDigest(unittest.TestCase):
 
     def test_comment_and_truncation(self):
         self.cfg.annotations_max_quote_chars = 10
-        block = render_block([ann(text="A" * 50, comment="note to self")], {}, self.cfg)
+        block = render_block([ann(text="A" * 50, comment="note to self")], self.cfg)
         self.assertIn("AAAAAAAAAA…", block)
         self.assertIn("💬 note to se…", block)
         self.cfg.annotations_include_comments = False
-        block2 = render_block([ann(comment="hidden")], {}, self.cfg)
+        block2 = render_block([ann(comment="hidden")], self.cfg)
         self.assertNotIn("hidden", block2)
 
-    def test_image_counted_not_rendered(self):
-        block = render_block([ann(), ann(key="I1", type=3, text="")], {}, self.cfg)
-        self.assertIn("1 image/ink annotation(s)", block)
+    def test_image_without_cache_falls_back_to_link(self):
+        block = render_block([ann(), ann(key="I1", type=3, text="")], self.cfg)
+        self.assertIn("🖼 Figures & areas (1)", block)
+        self.assertIn("annotation=I1", block)   # deep link fallback
+        self.assertNotIn("![[", block)
+
+    def test_image_embedded_when_cached(self):
+        with tempfile.TemporaryDirectory() as td:
+            cache = Path(td) / "cache"
+            cache.mkdir()
+            (cache / "I1.png").write_bytes(b"\x89PNG fake")
+            assets = Path(td) / "vault" / "K2026"
+            anns = [ann(key="I1", type=3, text="")]
+            images = prepare_images(anns, cache, assets, "K2026")
+            self.assertEqual(images, {"I1": "K2026_I1.png"})
+            self.assertTrue((assets / "K2026_I1.png").exists())
+            block = render_block(anns, self.cfg, images)
+            self.assertIn("![[K2026_I1.png]]", block)
+
+    def test_color_label_override(self):
+        self.cfg.annotations_labels = {"red": "Core Claims"}
+        block = render_block([ann(key="R", color="#ff6666")], self.cfg)
+        self.assertIn("🔴 Core Claims (1)", block)
+        self.assertNotIn("🔴 Red", block)
 
     def test_empty_set_renders_placeholder(self):
-        block = render_block([], {}, self.cfg)
+        block = render_block([], self.cfg)
         self.assertIn("_no annotations_", block)
 
     def test_digest_stable_and_sensitive(self):

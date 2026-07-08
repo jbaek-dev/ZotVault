@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zotvault"
-version = "0.8.0"
+version = "0.9.0"
 description = "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect, note, fetch PDF, queue AI analysis, index."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,6 +17,9 @@ classifiers = [
     "Operating System :: MacOS",
     "Topic :: Scientific/Engineering",
 ]
+
+[project.optional-dependencies]
+tray = ["pystray>=0.19", "Pillow>=9"]
 
 [project.scripts]
 zotvault = "zotvault.cli:main"

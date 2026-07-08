@@ -106,6 +106,11 @@ class ZoteroReader:
         self.connector_url = connector_url.rstrip("/")
         self._tmpdir: Optional[str] = None
 
+    @property
+    def annotation_cache_dir(self) -> Path:
+        """Zotero's rendered-annotation image cache (PNG per annotation key)."""
+        return self.data_dir / "cache" / "library"
+
     def db_signature(self) -> str:
         """Cheap change token from the Zotero DB files' size+mtime (no copy).
         Empty string if the DB is absent."""

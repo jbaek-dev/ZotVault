@@ -1,5 +1,9 @@
 """Long-running poller: run the pipeline every poll_interval_sec.
 
+`run()` is the CLI/launchd entry (signal-driven). `run_loop()` is the reusable
+core used both by run() and by the system tray (`zotvault tray`), which drives
+it from a background thread with stop/pause events.
+
 Single-instance guard via a pid lockfile; SIGTERM/SIGINT exit cleanly.
 Logs to ~/.zotvault/zotvault.log (rotating) and stderr.
 """
@@ -10,8 +14,9 @@ import logging.handlers
 import os
 import signal
 import sys
-import time
+import threading
 from pathlib import Path
+from typing import Optional
 
 from zotvault.config import Config
 from zotvault.pipeline import run_once
@@ -22,12 +27,11 @@ log = logging.getLogger("zotvault")
 _LOCK = Path("~/.zotvault/daemon.pid").expanduser()
 _LOGFILE = Path("~/.zotvault/zotvault.log").expanduser()
 
-_stop = False
+_stop_event = threading.Event()
 
 
 def _handle_signal(signum, frame):  # noqa: ANN001
-    global _stop
-    _stop = True
+    _stop_event.set()
     log.info("signal %s received, stopping after current cycle", signum)
 
 
@@ -90,6 +94,12 @@ def _daily_jobs(cfg: Config, state: State) -> None:
             state.kv_set("alerts_last_day", today)
             if added:
                 log.info("arXiv alerts: %s new candidate(s) in inbox", added)
+            if cfg.assist_enabled:
+                from zotvault import assist
+
+                scored = assist.triage_alerts(cfg, state)
+                if scored:
+                    log.info("assist: %s alert(s) triaged", scored)
         except Exception:
             log.exception("alerts fetch failed")
     if cfg.enrich_every_hours > 0 and (cfg.feat_citation_graph or cfg.feat_related or cfg.feat_synthesis):
@@ -117,6 +127,49 @@ def _daily_jobs(cfg: Config, state: State) -> None:
                 log.exception("enrichment failed")
 
 
+def run_loop(cfg: Config, stop: threading.Event,
+             paused: Optional[threading.Event] = None) -> None:
+    """Core loop: web thread + pipeline cycles until `stop` is set.
+
+    The caller owns the single-instance lock and logging setup.
+    """
+    from zotvault.webapp import RUN_LOCK
+
+    state = State(cfg.state_db)
+    state.trace("daemon_start", "", "poll every {}s".format(cfg.poll_interval_sec))
+    log.info("ZotVault daemon started (poll every %ss, dry_run=%s)",
+             cfg.poll_interval_sec, cfg.dry_run)
+    web_server = None
+    if cfg.web_enabled:
+        from zotvault import webapp
+
+        web_server = webapp.start_in_thread(cfg)
+    try:
+        while not stop.is_set():
+            if paused is None or not paused.is_set():
+                try:
+                    with RUN_LOCK:
+                        summary = run_once(cfg, state)
+                    if summary.changed or summary.errors:
+                        log.info("cycle: %s", summary.line())
+                    else:
+                        log.debug("cycle: %s", summary.line())
+                    _daily_jobs(cfg, state)
+                    if cfg.analysis_auto and cfg.analysis_engine != "none" and summary.changed:
+                        from zotvault import analyze
+
+                        analyze.run_batch_bg(cfg)
+                except Exception:
+                    log.exception("pipeline cycle failed")
+            stop.wait(max(1, int(cfg.poll_interval_sec)))
+    finally:
+        if web_server is not None:
+            web_server.shutdown()
+        state.trace("daemon_stop", "", "")
+        state.close()
+        log.info("ZotVault daemon stopped")
+
+
 def run(cfg: Config) -> int:
     setup_logging(cfg.log_level)
     if not acquire_lock():
@@ -124,44 +177,11 @@ def run(cfg: Config) -> int:
         # respawn-loop when the icon-launched daemon already holds the lock.
         log.info("another zotvault daemon is already running (pid file: %s) — exiting", _LOCK)
         return 0
+    _stop_event.clear()
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
-    state = State(cfg.state_db)
-    state.trace("daemon_start", "", "poll every {}s".format(cfg.poll_interval_sec))
-    log.info("ZotVault daemon started (poll every %ss, dry_run=%s)", cfg.poll_interval_sec, cfg.dry_run)
-    web_server = None
-    if cfg.web_enabled:
-        from zotvault import webapp
-
-        web_server = webapp.start_in_thread(cfg)
     try:
-        while not _stop:
-            try:
-                from zotvault.webapp import RUN_LOCK
-
-                with RUN_LOCK:
-                    summary = run_once(cfg, state)
-                if summary.changed or summary.errors:
-                    log.info("cycle: %s", summary.line())
-                else:
-                    log.debug("cycle: %s", summary.line())
-                _daily_jobs(cfg, state)
-                if cfg.analysis_auto and cfg.analysis_engine != "none" and summary.changed:
-                    from zotvault import analyze
-
-                    analyze.run_batch_bg(cfg)
-            except Exception:
-                log.exception("pipeline cycle failed")
-            # sleep in 1s slices so signals stop us promptly
-            for _ in range(max(1, int(cfg.poll_interval_sec))):
-                if _stop:
-                    break
-                time.sleep(1)
+        run_loop(cfg, _stop_event)
     finally:
-        if web_server is not None:
-            web_server.shutdown()
-        state.trace("daemon_stop", "", "")
-        state.close()
         release_lock()
-        log.info("ZotVault daemon stopped")
     return 0

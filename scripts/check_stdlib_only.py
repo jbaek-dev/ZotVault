@@ -18,7 +18,13 @@ STDLIB = {
     "platform", "re", "shutil", "signal", "socket", "sqlite3", "subprocess",
     "sys", "tempfile", "threading", "time", "typing", "urllib", "uuid",
     "xml", "zipfile", "hashlib", "base64", "html", "email", "contextlib",
-    "itertools", "tomllib", "http.server", "http.cookiejar",
+    "itertools", "tomllib", "http.server", "http.cookiejar", "webbrowser",
+}
+
+# Optional-extra imports allowed ONLY in these files (guarded by try/ImportError
+# and shipped as extras — the core stays zero-dependency).
+OPTIONAL = {
+    "zotvault/tray.py": {"pystray", "PIL"},
 }
 
 bad = []
@@ -33,9 +39,10 @@ for py in sorted(PKG.rglob("*.py")):
             names = [(node.module or "").split(".")[0]]
         else:
             continue
+        rel = str(py.relative_to(ROOT))
         for n in names:
-            if n and n != "zotvault" and n not in STDLIB:
-                bad.append("{}:{} imports '{}'".format(py.relative_to(ROOT), node.lineno, n))
+            if n and n != "zotvault" and n not in STDLIB and n not in OPTIONAL.get(rel, set()):
+                bad.append("{}:{} imports '{}'".format(rel, node.lineno, n))
 
 if bad:
     print("Third-party imports found (violates stdlib-only invariant):")

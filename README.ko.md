@@ -12,7 +12,7 @@
    - 평소처럼 브라우저 Zotero Connector
    - `zotvault add 10.1103/PhysRevB.1.1` 또는 대시보드에서 검색→체크→추가
    - arXiv 알림 인박스에서 승인 클릭
-2. 데몬이 2분 내 감지 → 노트·PDF·큐 자동 처리
+2. 데몬이 2분 내 감지 → 노트·PDF·큐 자동 처리 (PDF 형광펜·그림 주석은 노트의 마커 블록에 edit-safe 동기화, 색상 그룹명은 내 기준으로 변경 가능)
 3. 분석: `zotvault queue` 확인 → Cowork에서 "미분석 배치 분석" (기존 계약 그대로) → 완료 자동 감지
 4. 매일: 알림 다이제스트 + 인용그래프/관련추천/synthesis 제안 노트 자동 갱신
 
@@ -34,8 +34,10 @@ zotvault web   # → http://127.0.0.1:8377 (localhost 전용)
 | `search <검색어> [--source arxiv\|s2\|crossref]` | 검색 (보유 논문 표시) |
 | `queue` / `status` / `trace` | 분석 대기 / 상태 / 감사 로그 |
 | `alerts [--fetch\|--approve N]` | arXiv 알림 인박스 |
+| `assist` | 소형 로컬모델로 알림 관련도 점수(0–10) 매기기 (옵트인) |
 | `enrich` / `related <citekey>` / `synthesis` | 인용그래프·관련추천·클러스터 |
-| `install-daemon` | launchd 등록 파일 생성 (자동 로드 안 함) |
+| `install-daemon` | 자동시작: launchd(macOS)/systemd(Linux)/schtasks 안내(Windows) |
+| `tray` | 데몬+트레이 아이콘 (`pip install "zotvault[tray]"` 필요) |
 
 ## 안전 보장
 
@@ -52,4 +54,4 @@ Polaris 레포의 `polaris/tools/zotvault_tools.py`가 자동 등록됨:
 
 ## 설치·테스트
 
-README.md(영문) Quick start 참조. 테스트: `python3 -m unittest discover -s tests` (47개, 네트워크 불필요).
+README.md(영문) Quick start 참조. 테스트: `python3 -m unittest discover -s tests` (101개, 네트워크 불필요).

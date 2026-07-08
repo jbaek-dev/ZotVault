@@ -233,15 +233,38 @@ def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
 
 def cmd_install_daemon(cfg: Config, args: argparse.Namespace) -> int:
     Path("~/.zotvault").expanduser().mkdir(parents=True, exist_ok=True)
-    repo = Path(__file__).resolve().parent.parent
-    plist = PLIST_TEMPLATE.format(python=sys.executable, repo=repo, home=Path.home())
-    dest = Path("~/Library/LaunchAgents/com.zotvault.daemon.plist").expanduser()
+    system = platform.system()
+    if system == "Darwin":
+        repo = Path(__file__).resolve().parent.parent
+        plist = PLIST_TEMPLATE.format(python=sys.executable, repo=repo, home=Path.home())
+        dest = Path("~/Library/LaunchAgents/com.zotvault.daemon.plist").expanduser()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(plist, encoding="utf-8")
+        _print("wrote {}".format(dest))
+        _print("ZotVault does not auto-load it. To start now and at login:")
+        _print("  launchctl load {}".format(dest))
+        _print("To stop: launchctl unload {}".format(dest))
+        return 0
+    if system == "Windows":
+        exe = sys.executable.replace("python.exe", "pythonw.exe")
+        _print("Windows: register a logon task (run in an elevated-less prompt):")
+        _print('  schtasks /Create /SC ONLOGON /TN "ZotVault" /TR "\"{}\" -m zotvault.cli daemon"'.format(exe))
+        _print("or, with the tray extra installed (pip install \"zotvault[tray]\"):")
+        _print('  schtasks /Create /SC ONLOGON /TN "ZotVault" /TR "\"{}\" -m zotvault.cli tray"'.format(exe))
+        _print("Remove with: schtasks /Delete /TN \"ZotVault\"")
+        _print("(ZotVault does not register it for you — you stay in control.)")
+        return 0
+    # Linux / other: systemd user unit
+    unit = (
+        "[Unit]\nDescription=ZotVault daemon\nAfter=network.target\n\n"
+        "[Service]\nExecStart={} -m zotvault.cli daemon\nRestart=on-failure\n\n"
+        "[Install]\nWantedBy=default.target\n"
+    ).format(sys.executable)
+    dest = Path("~/.config/systemd/user/zotvault.service").expanduser()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(plist, encoding="utf-8")
+    dest.write_text(unit, encoding="utf-8")
     _print("wrote {}".format(dest))
-    _print("ZotVault does not auto-load it. To start now and at login:")
-    _print("  launchctl load {}".format(dest))
-    _print("To stop: launchctl unload {}".format(dest))
+    _print("Enable with:  systemctl --user enable --now zotvault")
     return 0
 
 
@@ -497,6 +520,29 @@ def cmd_analyze(cfg: Config, args: argparse.Namespace) -> int:
     return 0 if failures == 0 else 1
 
 
+def cmd_tray(cfg: Config, args: argparse.Namespace) -> int:
+    from zotvault import tray
+    from zotvault.daemon import setup_logging
+
+    setup_logging(cfg.log_level)
+    return tray.main(cfg)
+
+
+def cmd_assist(cfg: Config, args: argparse.Namespace) -> int:
+    from zotvault import assist
+
+    state = State(cfg.state_db)
+    try:
+        n = assist.triage_alerts(cfg, state, limit=args.limit)
+    finally:
+        state.close()
+    if not cfg.assist_enabled or not cfg.assist_model:
+        _print("[assist] is disabled — set enabled = true and a small model in config")
+        return 1
+    _print("{} alert(s) triaged with {}".format(n, cfg.assist_model))
+    return 0
+
+
 def cmd_trace(cfg: Config, args: argparse.Namespace) -> int:
     state = State(cfg.state_db)
     for row in reversed(state.recent_trace(args.limit)):
@@ -559,6 +605,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("synthesis", help="suggest synthesis clusters")
     sp.add_argument("--write", action="store_true", help="also write _Synthesis_Suggestions.md")
 
+    sub.add_parser("tray", help="system tray + daemon (needs: pip install 'zotvault[tray]')")
+
+    sp = sub.add_parser("assist", help="run local-model assists (alert triage)")
+    sp.add_argument("--limit", type=int, default=None)
+
     sp = sub.add_parser("analyze", help="AI-analyze pending papers ([analysis] engine)")
     sp.add_argument("citekeys", nargs="*", help="specific citekeys (default: all pending)")
     sp.add_argument("--limit", type=int, default=None)
@@ -567,6 +618,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Windows consoles (cp949/cp1252) crash on emoji — degrade instead of dying.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError):
+            pass
     args = build_parser().parse_args(argv)
     if args.command is None:
         build_parser().print_help()
@@ -590,6 +647,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         "related": cmd_related,
         "synthesis": cmd_synthesis,
         "analyze": cmd_analyze,
+        "assist": cmd_assist,
+        "tray": cmd_tray,
     }
     return handlers[args.command](cfg, args)
 

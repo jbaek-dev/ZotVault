@@ -23,10 +23,14 @@ This refines the historical "never rewrite an existing note" invariant to:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
+
+log = logging.getLogger("zotvault.annotations")
 
 if TYPE_CHECKING:
     from zotvault.config import Config
@@ -49,8 +53,55 @@ COLOR_NAMES = {
 }
 
 # Zotero annotation types: 1 highlight, 2 note, 3 image, 4 ink, 5 underline,
-# 6 text. Text-bearing types are rendered; the rest are counted.
+# 6 text. Text-bearing types are rendered; image/ink are embedded when Zotero's
+# rendered cache PNG exists (falling back to a deep link).
 TEXT_TYPES = {1, 2, 5, 6}
+IMAGE_TYPES = {3, 4}
+
+# config color keys -> palette hex (for [annotations] label_<name> overrides)
+LABEL_KEYS = {
+    "yellow": "#ffd400", "red": "#ff6666", "green": "#5fb236", "blue": "#2ea8e5",
+    "purple": "#a28ae5", "magenta": "#e56eee", "orange": "#f19837", "gray": "#aaaaaa",
+}
+
+
+def color_label(color: str, cfg: "Config"):
+    """(emoji, label) for a hex color, honoring [annotations] label_* overrides."""
+    c = (color or "").lower()
+    emoji, default = COLOR_NAMES.get(c, ("⬜", c or "No color"))
+    overrides = getattr(cfg, "annotations_labels", {}) or {}
+    for key, hexval in LABEL_KEYS.items():
+        if hexval == c and overrides.get(key):
+            return emoji, overrides[key]
+    return emoji, default
+
+
+def prepare_images(annotations: "List[Annotation]", zotero_cache_dir: Path,
+                   assets_dir: Path, citekey: str, dry_run: bool = False) -> Dict[str, str]:
+    """Copy Zotero's rendered annotation images into the note's assets folder.
+
+    Returns {annotation_key: embedded_filename}. Only annotations whose cache
+    PNG exists are embedded; the rest fall back to a deep link. Files are
+    app-owned but never deleted (no-delete principle) — orphans are harmless.
+    """
+    out: Dict[str, str] = {}
+    for a in annotations:
+        if a.type not in IMAGE_TYPES:
+            continue
+        src = Path(zotero_cache_dir) / (a.key + ".png")
+        if not src.exists():
+            continue
+        fname = "{}_{}.png".format(citekey, a.key)
+        dest = Path(assets_dir) / fname
+        try:
+            if not dry_run:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                if not dest.exists() or dest.stat().st_mtime < src.stat().st_mtime:
+                    shutil.copy2(str(src), str(dest))
+            out[a.key] = fname
+        except OSError as exc:
+            log.warning("annotation image copy failed (%s): %s", a.key, exc)
+    return out
 
 
 def digest(annotations: "List[Annotation]") -> str:
@@ -70,13 +121,23 @@ def _quote(text: str, max_chars: int) -> str:
     return flat
 
 
-def render_block(annotations: "List[Annotation]", attachment_keys: Dict[str, str],
-                 cfg: "Config") -> str:
-    """Render the full marker-delimited block (deterministic)."""
+def _deep_link(a: "Annotation") -> str:
+    return "zotero://open-pdf/library/items/{}?page={}&annotation={}".format(
+        a.attachment_key, a.page_label or "", a.key)
+
+
+def render_block(annotations: "List[Annotation]", cfg: "Config",
+                 images: "Dict[str, str]" = None) -> str:
+    """Render the full marker-delimited block (deterministic).
+
+    images: {annotation_key: filename} for image/ink annotations whose PNG was
+    copied into the vault (see prepare_images).
+    """
+    images = images or {}
     lines = [START, "", "## Annotations (Zotero)",
              "<!-- auto-synced by ZotVault; edits inside this block are overwritten -->", ""]
     text_anns = [a for a in annotations if a.type in TEXT_TYPES and (a.text or a.comment)]
-    other = [a for a in annotations if a.type not in TEXT_TYPES]
+    image_anns = [a for a in annotations if a.type in IMAGE_TYPES]
 
     by_color: Dict[str, List] = {}
     for a in text_anns:
@@ -86,24 +147,29 @@ def render_block(annotations: "List[Annotation]", attachment_keys: Dict[str, str
     palette = list(COLOR_NAMES.keys())
     ordered = sorted(by_color.keys(), key=lambda c: (palette.index(c) if c in palette else 99, c))
     for color in ordered:
-        emoji, name = COLOR_NAMES.get(color, ("⬜", color or "No color"))
+        emoji, name = color_label(color, cfg)
         group = sorted(by_color[color], key=lambda x: (x.sort_index, x.key))
         lines.append("### {} {} ({})".format(emoji, name, len(group)))
         lines.append("")
         for a in group:
-            att_key = attachment_keys.get(a.attachment_key, a.attachment_key)
-            link = "zotero://open-pdf/library/items/{}?page={}&annotation={}".format(
-                att_key, a.page_label or "", a.key)
             if a.text:
                 lines.append("> {}".format(_quote(a.text, cfg.annotations_max_quote_chars)))
             if a.comment and cfg.annotations_include_comments:
                 lines.append("> 💬 {}".format(_quote(a.comment, cfg.annotations_max_quote_chars)))
-            lines.append("> — p.{} · [open]({})".format(a.page_label or "?", link))
+            lines.append("> — p.{} · [open]({})".format(a.page_label or "?", _deep_link(a)))
             lines.append("")
-    if other:
-        lines.append("_{} image/ink annotation(s) — open the PDF in Zotero to view._".format(len(other)))
+    if image_anns:
+        lines.append("### 🖼 Figures & areas ({})".format(len(image_anns)))
         lines.append("")
-    if not text_anns and not other:
+        for a in sorted(image_anns, key=lambda x: (x.sort_index, x.key)):
+            fname = images.get(a.key)
+            if fname:
+                lines.append("![[{}]]".format(fname))
+            if a.comment and cfg.annotations_include_comments:
+                lines.append("> 💬 {}".format(_quote(a.comment, cfg.annotations_max_quote_chars)))
+            lines.append("> — p.{} · [open]({})".format(a.page_label or "?", _deep_link(a)))
+            lines.append("")
+    if not text_anns and not image_anns:
         lines.append("_no annotations_")
         lines.append("")
     lines.append(END)

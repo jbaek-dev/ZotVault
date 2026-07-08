@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0 — 2026-07-08 (figures, triage, tray)
+
+- **Figure/area annotations embedded**: image and ink annotations now land in
+  the notes as `![[citekey_ANNKEY.png]]` (copied from Zotero's rendered
+  cache; deep-link fallback when no cache exists). App-owned files, never
+  deleted.
+- **Color semantics are yours**: `[annotations] label_red = "Core Claims"`
+  etc. rename the highlight groups to match your own highlighting system.
+- **assist — small-local-model structured output**: first task is arXiv alert
+  triage. A small Ollama model scores inbox candidates 0-10 under a strict
+  JSON contract (constrained decoding + schema validation + one retry);
+  dashboard sorts by score. Purely advisory, off by default.
+- **System tray** (`zotvault tray`, optional extra `pip install
+  "zotvault[tray]"`): daemon + tray icon with Open Dashboard / Run now /
+  Pause / Quit — the Syncthing pattern. Core stays zero-dependency (extras
+  are the only third-party imports, enforced by the CI stdlib guard).
+- **Windows**: console-encoding crash fix (emoji on cp949/cp1252),
+  `install-daemon` now prints the Task Scheduler command on Windows and
+  writes a systemd user unit on Linux.
+- Daemon loop refactored around stop/pause events (shared by CLI and tray).
+- 101 tests.
+
 ## 0.8.0 — 2026-07-08 (edit-safe annotation sync)
 
 The ecosystem's most-requested capability, on ZotVault's safety contract:
