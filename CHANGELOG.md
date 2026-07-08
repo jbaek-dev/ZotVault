@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.1 — 2026-07-08 (ultrareview hardening)
+
+- **search**: DOI/arXiv id in the search box now resolves the exact paper
+  (direct lookup) instead of keyword-matching garbage; friendly S2 429 message.
+- **proxy**: EZproxy sessions actually work — browser-exported session cookies
+  (expiry=0) are pinned so Python sends them; `citation_pdf_url` is re-routed
+  through the proxy; Wiley `/doi/pdfdirect/` variant; EZproxy "not configured"
+  stanza error surfaced with an actionable message. Verified live end-to-end.
+- **security**: dashboard POST endpoints require the `X-PaperFlow` header and
+  a local `Host` (blocks cross-origin CSRF against 127.0.0.1); cookie-file
+  permission check in `doctor`; `.gitignore` blocks cookie files.
+- **launchd**: `KeepAlive.SuccessfulExit=false` + lock-conflict exit 0 —
+  removes the respawn loop when the icon-launched daemon already runs.
+- **robustness**: filesystem-unsafe citekeys are rejected per-item; friendly
+  port-in-use message for `paperflow web`; lint cleanups.
+- **app bundle**: AppleScript-applet launcher (the only bundle form macOS TCC
+  can bind grants to); bundle frozen after ad-hoc signing; code loads from
+  `~/.paperflow/app` synced by `scripts/apply_edits.sh` — grants survive edits.
+
 ## 0.5.0 — 2026-07-05 (M2–M5)
 
 ### M2 — collect

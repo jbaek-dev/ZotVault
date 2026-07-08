@@ -118,9 +118,19 @@ def make_handler(cfg: Config):
                 log.exception("GET %s failed", self.path)
                 self._json({"error": str(exc)[:300]}, 500)
 
+        def _origin_ok(self) -> bool:
+            """Reject non-local hosts and, for state-changing calls, require the
+            custom header — a malicious web page can fire cross-origin POSTs at
+            127.0.0.1 but cannot attach custom headers without CORS approval."""
+            host = (self.headers.get("Host") or "").split(":")[0]
+            return host in ("127.0.0.1", "localhost", cfg.web_host)
+
         # -- POST ---------------------------------------------------------------
         def do_POST(self) -> None:  # noqa: N802
             try:
+                if not self._origin_ok() or self.headers.get("X-PaperFlow") != "1":
+                    self._json({"error": "forbidden (missing X-PaperFlow header)"}, 403)
+                    return
                 r = self.route
                 if r == "/api/add":
                     self._json(self._add())

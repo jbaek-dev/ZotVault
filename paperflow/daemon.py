@@ -120,8 +120,10 @@ def _daily_jobs(cfg: Config, state: State) -> None:
 def run(cfg: Config) -> int:
     setup_logging(cfg.log_level)
     if not acquire_lock():
-        log.error("another paperflow daemon is already running (pid file: %s)", _LOCK)
-        return 1
+        # exit 0 on purpose: launchd's KeepAlive={SuccessfulExit:false} must not
+        # respawn-loop when the icon-launched daemon already holds the lock.
+        log.info("another paperflow daemon is already running (pid file: %s) — exiting", _LOCK)
+        return 0
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
     state = State(cfg.state_db)

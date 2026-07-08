@@ -10,6 +10,7 @@ that simply registers everything in local state.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -92,6 +93,15 @@ def _process_item(
                 "no Better BibTeX citekey yet (retry {}); is Zotero+BBT running?".format(retries),
             )
         summary.citekey_pending += 1
+        return
+    # citekeys become folder/file names — refuse anything filesystem-unsafe
+    if not re.match(r"^[\w.\-]+$", citekey):
+        state.upsert_item(
+            item.item_id, item_key=item.item_key, title=item.title,
+            note_status="error", last_error="unsafe citekey: " + citekey[:80],
+        )
+        state.trace("citekey_invalid", item.item_key, citekey[:80])
+        summary.errors += 1
         return
     item.citekey = citekey
 

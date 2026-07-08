@@ -47,7 +47,10 @@ PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
     <key>StandardOutPath</key>
     <string>{home}/.paperflow/launchd.out.log</string>
     <key>StandardErrorPath</key>
@@ -157,6 +160,10 @@ def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
         ck = Path(os.path.expanduser(cfg.proxy_cookie_file)) if cfg.proxy_cookie_file else None
         checks.append(("proxy cookie file", ck is not None and ck.exists(),
                        str(ck) if ck else "not set"))
+        if ck is not None and ck.exists():
+            mode = ck.stat().st_mode & 0o777
+            checks.append(("proxy cookie permissions", mode in (0o600, 0o400),
+                           oct(mode) + (" — run: chmod 600 " + str(ck) if mode not in (0o600, 0o400) else "")))
     if cfg.alerts_enabled:
         checks.append(("alerts keywords", bool(cfg.alerts_keywords),
                        ", ".join(cfg.alerts_keywords) or "empty"))
@@ -204,6 +211,7 @@ def cmd_daemon(cfg: Config, args: argparse.Namespace) -> int:
 
 
 def cmd_install_daemon(cfg: Config, args: argparse.Namespace) -> int:
+    Path("~/.paperflow").expanduser().mkdir(parents=True, exist_ok=True)
     repo = Path(__file__).resolve().parent.parent
     plist = PLIST_TEMPLATE.format(python=sys.executable, repo=repo, home=Path.home())
     dest = Path("~/Library/LaunchAgents/com.paperflow.daemon.plist").expanduser()
@@ -341,7 +349,13 @@ def cmd_web(cfg: Config, args: argparse.Namespace) -> int:
     from paperflow import webapp
 
     setup_logging(cfg.log_level)
-    server = webapp.serve(cfg)
+    try:
+        server = webapp.serve(cfg)
+    except OSError as exc:
+        _print("❌ cannot bind {}:{} — {}".format(cfg.web_host, cfg.web_port, exc))
+        _print("   (daemon already serving the dashboard? just open http://{}:{})".format(
+            cfg.web_host, cfg.web_port))
+        return 1
     _print("PaperFlow dashboard: http://{}:{}  (Ctrl-C to stop)".format(cfg.web_host, cfg.web_port))
     try:
         server.serve_forever()

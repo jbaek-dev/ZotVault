@@ -115,7 +115,11 @@ let lastResults = [];
 function toast(msg, ms=3500){ const t=$("toast"); t.textContent=msg; t.style.display="block";
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", ms); }
 
-async function api(path, opts){ const r = await fetch(path, opts); return r.json(); }
+async function api(path, opts){
+  opts = opts || {};
+  opts.headers = Object.assign({"X-PaperFlow": "1"}, opts.headers || {});
+  const r = await fetch(path, opts); return r.json();
+}
 
 async function refreshStatus(){
   const s = await api("/api/status");
