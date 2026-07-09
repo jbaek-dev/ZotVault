@@ -1,0 +1,47 @@
+name: Publish to PyPI
+
+# Trusted Publishing (OIDC) — no API tokens stored anywhere.
+# One-time setup on PyPI: Account -> Publishing -> add a "pending publisher"
+#   project: zotvault / owner: jbaek-dev / repo: ZotVault
+#   workflow: publish.yml / environment: pypi
+# Then publishing a GitHub Release triggers this workflow.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          pip install build
+          python -m build
+      - name: Sanity-check the wheel
+        run: |
+          pip install dist/*.whl
+          zotvault --version
+          python -c "import zotvault, pathlib; p = pathlib.Path(zotvault.__file__).parent; assert (p / 'static' / 'index.html').exists(), 'static missing from wheel'"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
