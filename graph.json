@@ -1,11 +1,13 @@
 {
   "meta": {
     "app": "ZotVault",
-    "version": "0.9.0",
+    "version": "0.9.1",
     "purpose": "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect -> note -> PDF (OA-first) -> AI-analysis queue -> vault index, plus search/add, dashboard, alerts, citation graph, related papers, synthesis suggestions.",
     "updated": "2026-07-08",
     "note": "Lightweight orientation map for humans and AI agents. The CODE is the source of truth; regenerate/adjust this file whenever module-level structure changes. Read AGENTS.md first for the change protocol.",
-    "change_protocol": "propose-first: read AGENTS.md + this file + docs/ARCHITECTURE.md, submit a written plan (files to touch, invariants affected, tests), get user approval, then edit. Apply to the installed app with scripts/apply_edits.sh (never re-sign)."
+    "change_protocol": "propose-first: read AGENTS.md + this file + docs/ARCHITECTURE.md, submit a written plan (files to touch, invariants affected, tests), get user approval, then edit. Apply to the installed app with scripts/apply_edits.sh (never re-sign).",
+    "repo": "https://github.com/jbaek-dev/ZotVault",
+    "distribution": "PyPI: pip install zotvault (extras: [tray]). Publishing = Trusted Publishing (OIDC): .github/workflows/publish.yml runs on GitHub Release publish — build -> wheel sanity check -> upload. No stored tokens. Release procedure: bump zotvault/__init__.py + pyproject.toml -> CHANGELOG -> commit -> tag vX.Y.Z -> publish GitHub Release."
   },
   "runtime": {
     "language": "Python >= 3.9, standard library ONLY (zero runtime deps; keep it that way)",
@@ -96,7 +98,7 @@
     },
     {
       "file": "zotvault/zotero_writer.py",
-      "purpose": "add items: identifier classification, Crossref/DataCite/arXiv resolvers, optional translation-server, POST /connector/saveItems, duplicate detection",
+      "purpose": "One-shot add: DOI/arXiv -> Crossref/DataCite/arXiv resolvers -> connector saveItems. v0.9.1: strip_markup() sanitizes MathML/JATS in titles (empty-sep joins math text nodes, drops mml:annotation, unescapes entities; space-sep for abstracts); DOI adds do one Unpaywall lookup and put the OA PDF in the payload's attachments so ZOTERO downloads it itself (storage/ invariant intact; proxy PDFs stay on the daemon path)",
       "key": [
         "classify_identifier",
         "resolve_doi",
@@ -104,6 +106,16 @@
         "parse_arxiv_atom",
         "save_items_to_zotero",
         "add_identifiers"
+      ],
+      "key_symbols": [
+        "_oa_pdf_url",
+        "add_identifiers",
+        "classify_identifier",
+        "parse_crossref",
+        "resolve_arxiv",
+        "resolve_doi",
+        "save_items_to_zotero",
+        "strip_markup"
       ]
     },
     {
@@ -178,7 +190,7 @@
     },
     {
       "file": "zotvault/webapp.py",
-      "purpose": "stdlib ThreadingHTTPServer JSON API + static dashboard; RUN_LOCK shared with daemon",
+      "purpose": "stdlib ThreadingHTTPServer JSON API + static dashboard; RUN_LOCK shared with daemon | v0.9.1: successful /api/add spawns a delayed (4s) background _run_pipeline_guarded cycle so note/queue/PDF appear in seconds",
       "key": [
         "serve",
         "start_in_thread",
@@ -242,11 +254,14 @@
     },
     {
       "file": "zotvault/cli.py",
-      "purpose": "all commands + doctor checks + launchd plist",
+      "purpose": "all commands + doctor checks + launchd plist | v0.9.1: cmd_add POSTs /api/run-once to a running daemon after successful adds",
       "key": [
         "main",
         "build_parser",
         "_checks"
+      ],
+      "key_symbols": [
+        "_kick_daemon_run"
       ]
     },
     {
