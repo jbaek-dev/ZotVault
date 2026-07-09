@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.2 — 2026-07-08 (first-run experience)
+
+- **Interactive setup**: `zotvault init` is now a wizard when run in a
+  terminal — asks for the vault folder (validated), notes subfolder,
+  Unpaywall email and language; offers to scaffold missing vault files
+  (papers folder, index.md with the progress marker, log.md); then runs
+  `doctor` and prints next steps. Non-interactive contexts (pipes, the app
+  launcher, `--yes`) keep the old template-only behavior.
+- **Dashboard setup checklist**: new `GET /api/doctor` + a checklist card
+  that appears automatically when core config is missing (or the library is
+  empty), and on demand via the new **Doctor** header button. Buttons got
+  explanatory tooltips; "Enrich" is now "Refresh suggestions".
+- Health checks moved to `zotvault/health.py` (shared by CLI + web); fixed a
+  crash in the state-db check. 113 tests.
+
 ## 0.9.1 — 2026-07-08 (first real-use feedback)
 
 - **Fix: MathML/JATS markup in titles** — Crossref ships titles like

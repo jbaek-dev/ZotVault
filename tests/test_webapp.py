@@ -66,3 +66,14 @@ class TestWebappGuards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_doctor_endpoint(self):
+        req = urllib.request.Request("http://127.0.0.1:{}/api/doctor".format(self.port))
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+        self.assertIsInstance(data, list)
+        self.assertGreater(len(data), 3)
+        self.assertIn("name", data[0])
+        self.assertIn("ok", data[0])
+        self.assertIn("detail", data[0])

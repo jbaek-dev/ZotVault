@@ -55,11 +55,20 @@
   <h1>📄 ZotVault</h1>
   <span class="sub" id="version"></span>
   <span style="flex:1"></span>
-  <button class="ghost small" onclick="runOnce()">Run pipeline now</button>
-  <button class="ghost small" onclick="runEnrich()">Enrich (citations · related)</button>
-  <button class="ghost small" onclick="runAnalyze()">Analyze pending (AI)</button>
+  <button class="ghost small" onclick="runOnce()" title="Scan Zotero now — create notes, fetch PDFs, update the queue and index">Run pipeline now</button>
+  <button class="ghost small" onclick="runEnrich()" title="Rebuild Citation_Graph, Related_Suggestions and synthesis suggestions (Semantic Scholar + Ollama)">Refresh suggestions</button>
+  <button class="ghost small" onclick="runAnalyze()" title="Run the configured [analysis] engine over queued papers">Analyze pending (AI)</button>
+  <button class="ghost small" onclick="refreshSetup(true)" title="Environment health check — config, Zotero, vault, Ollama">Doctor</button>
 </header>
 <main>
+
+<section id="setup-sec" style="display:none">
+  <h2>Setup checklist <span class="muted" id="setup-verdict"></span></h2>
+  <div id="setup" class="muted">checking…</div>
+  <div class="muted" style="margin-top:8px">Fix ❌ items in <code>~/.zotvault/config.toml</code> (or re-run
+    <code>zotvault init --force</code>), then hit <b>Doctor</b> to re-check ·
+    <a href="https://github.com/jbaek-dev/ZotVault#quick-start" target="_blank">setup guide</a></div>
+</section>
 
 <section id="status-sec">
   <h2>Status</h2>
@@ -244,7 +253,24 @@ async function runEnrich(){
   toast(r.ok ? "🧠 " + r.message : "⏳ " + (r.message||r.error));
 }
 
-function refreshAll(){ refreshStatus(); refreshQueue(); refreshAlerts(); refreshSuggestions(); refreshTrace(); }
+const CORE_CHECKS = ["config file","zotero data dir","zotero.sqlite","zotero running (connector ping)","vault dir"];
+async function refreshSetup(force){
+  try{
+    const s = await api("/api/status");
+    const items = ((s||{}).counts||{}).items || 0;
+    const checks = await api("/api/doctor");
+    const coreBad = checks.some(c => !c.ok && CORE_CHECKS.includes(c.name));
+    if(!force && !coreBad && items > 0){ $("setup-sec").style.display = "none"; return; }
+    $("setup").innerHTML = checks.map(c =>
+      `<div style="padding:3px 0">${c.ok?"✅":"❌"} <b>${esc(c.name)}</b> <span class="muted">${esc(c.detail)}</span></div>`).join("");
+    const bad = checks.filter(c => !c.ok).length;
+    $("setup-verdict").textContent = bad ? bad + " issue(s) — fix ❌ below" : "all good ✓";
+    $("setup-sec").style.display = "block";
+    if(force) $("setup-sec").scrollIntoView({behavior:"smooth"});
+  }catch(e){ /* doctor unavailable — leave hidden */ }
+}
+
+function refreshAll(){ refreshStatus(); refreshQueue(); refreshAlerts(); refreshSuggestions(); refreshTrace(); refreshSetup(false); }
 refreshAll();
 setInterval(refreshStatus, 30000);
 setInterval(refreshQueue, 60000);

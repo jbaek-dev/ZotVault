@@ -13,6 +13,7 @@ Endpoints (JSON unless noted):
   GET  /api/suggestions     synthesis cluster suggestions
   POST /api/enrich          run enrichment in the background
   GET  /api/trace           ?limit=30
+  GET  /api/doctor          environment health checks (doctor)
 
 No authentication — bind to 127.0.0.1 only (default). Do not expose publicly.
 """
@@ -118,6 +119,8 @@ def make_handler(cfg: Config):
                     self._json(self._suggestions())
                 elif r == "/api/trace":
                     self._json(self._trace())
+                elif r == "/api/doctor":
+                    self._json(self._doctor())
                 else:
                     self._json({"error": "not found"}, 404)
             except Exception as exc:
@@ -175,6 +178,10 @@ def make_handler(cfg: Config):
                 }
             finally:
                 state.close()
+
+        def _doctor(self) -> Any:
+            from zotvault.health import checks
+            return [{"name": n, "ok": bool(ok), "detail": d} for n, ok, d in checks(cfg)]
 
         def _queue(self) -> Any:
             from zotvault import analysis_queue

@@ -15,16 +15,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 from zotvault import __version__, analysis_queue
 from zotvault.config import CONFIG_TEMPLATE, DEFAULT_CONFIG_PATH, Config, load_config
+from zotvault.health import checks as _checks
 from zotvault.state import State
-from zotvault.zotero_reader import ZoteroReader
 
 PLIST_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -68,127 +67,96 @@ def _print(msg: str = "") -> None:
 # commands
 # ---------------------------------------------------------------------------
 
+def _ask(prompt: str, default: str = "") -> str:
+    tail = " [{}]".format(default) if default else ""
+    try:
+        val = input("  {}{}: ".format(prompt, tail)).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return default
+    return val or default
+
+
+def _toml_str(value: str) -> str:
+    return value.replace("\\", "/").replace('"', '\\"')
+
+
+def apply_init_answers(text: str, vault: str = "", papers: str = "",
+                       email: str = "", lang: str = "") -> str:
+    """Inject setup-wizard answers into the config template (pure, testable)."""
+    if vault:
+        text = text.replace('dir = ""', 'dir = "{}"'.format(_toml_str(vault)), 1)
+    if papers:
+        text = text.replace('papers_subdir = "30_Resources/Papers/zotero"',
+                            'papers_subdir = "{}"'.format(_toml_str(papers)), 1)
+    if email:
+        text = text.replace('unpaywall_email = ""',
+                            'unpaywall_email = "{}"'.format(_toml_str(email)), 1)
+    if lang and lang != "en":
+        text = text.replace('language = "en"', 'language = "{}"'.format(_toml_str(lang)), 1)
+    return text
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     path = Path(DEFAULT_CONFIG_PATH).expanduser()
     if path.exists() and not args.force:
         _print("config already exists: {} (use --force to overwrite)".format(path))
         return 1
+    text = CONFIG_TEMPLATE
+    interactive = (not getattr(args, "yes", False)
+                   and sys.stdin is not None and sys.stdin.isatty()
+                   and sys.stdout.isatty())
+    if interactive:
+        _print("ZotVault setup — Enter accepts the [default], blank skips a question.")
+        _print()
+        while True:
+            vault = _ask("Obsidian vault folder (absolute path; blank = configure later)")
+            if not vault or Path(vault).expanduser().is_dir():
+                break
+            if _ask("    '{}' does not exist — use it anyway? (y/N)".format(vault),
+                    "n").lower().startswith("y"):
+                break
+        papers = _ask("Subfolder for paper notes (inside the vault)",
+                      "30_Resources/Papers/zotero") if vault else ""
+        email = _ask("Email for Unpaywall open-access PDF lookup (blank = disabled)")
+        lang = _ask("Vault log language — en or ko", "en").lower()
+        text = apply_init_answers(text, vault, papers, email, lang)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    path.write_text(text, encoding="utf-8")
     _print("wrote {}".format(path))
-    _print("Edit at least: [vault] dir, [pdf] unpaywall_email")
+    if not interactive:
+        _print("Edit at least: [vault] dir, [pdf] unpaywall_email")
+        return 0
+    cfg = load_config()
+    if cfg.vault_dir is not None and cfg.papers_dir is not None:
+        missing = []
+        if not cfg.papers_dir.exists():
+            missing.append("papers folder ({})".format(cfg.papers_dir))
+        index_p = cfg.vault_dir / cfg.index_file
+        log_p = cfg.vault_dir / cfg.log_file
+        if not index_p.exists():
+            missing.append(cfg.index_file)
+        if not log_p.exists():
+            missing.append(cfg.log_file)
+        if missing and _ask("Create missing vault files now? ({}) (Y/n)".format(
+                ", ".join(missing)), "y").lower().startswith("y"):
+            cfg.papers_dir.mkdir(parents=True, exist_ok=True)
+            if not index_p.exists():
+                index_p.write_text(
+                    "# Index\n\nPapers analyzed: <!-- zotvault:progress 0/0 -->\n",
+                    encoding="utf-8")
+            if not log_p.exists():
+                log_p.write_text("# Log\n", encoding="utf-8")
+            _print("  created.")
+    _print()
+    _print("Checking your environment (doctor):")
+    cmd_doctor(cfg, args)
+    _print()
+    _print("Next steps:")
+    _print("  zotvault run-once --dry-run    preview one cycle (writes nothing)")
+    _print("  zotvault daemon                run continuously (+ dashboard)")
     return 0
 
-
-def _checks(cfg: Config) -> List[Tuple[str, bool, str]]:
-    checks: List[Tuple[str, bool, str]] = []
-    py_ok = sys.version_info >= (3, 9)
-    checks.append(("python >= 3.9", py_ok, platform.python_version()))
-    checks.append(
-        ("config file", cfg.config_path is not None, str(cfg.config_path or "missing — run `zotvault init`"))
-    )
-    checks.append(("zotero data dir", cfg.zotero_data_dir.exists(), str(cfg.zotero_data_dir)))
-    checks.append(("zotero.sqlite", cfg.zotero_sqlite.exists(), str(cfg.zotero_sqlite)))
-    checks.append(("zotero storage/", cfg.zotero_storage.exists(), str(cfg.zotero_storage)))
-    reader = ZoteroReader(cfg.zotero_data_dir, cfg.connector_url)
-    alive = reader.zotero_alive()
-    checks.append(("zotero running (connector ping)", alive, cfg.connector_url))
-    if alive:
-        bbt = reader.bbt_citekeys(["__zotvault_probe__"])
-        # a working endpoint answers (with an empty/mapped result); failure -> {}
-        probe_ok = isinstance(bbt, dict)
-        try:
-            import urllib.request
-
-            req = urllib.request.Request(
-                cfg.connector_url + "/better-bibtex/json-rpc",
-                data=b'{"jsonrpc":"2.0","method":"item.citationkey","params":[[]],"id":1}',
-                headers={"Content-Type": "application/json"},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                probe_ok = resp.status == 200
-        except Exception:
-            probe_ok = False
-        checks.append(("Better BibTeX (REQUIRED)", probe_ok,
-                       "citekey source — without it NOTHING syncs" if not probe_ok
-                       else "citekey source"))
-    if cfg.vault_dir is None:
-        checks.append(("vault dir", False, "not configured ([vault] dir)"))
-    else:
-        checks.append(("vault dir", cfg.vault_dir.exists(), str(cfg.vault_dir)))
-        papers = cfg.papers_dir
-        checks.append(("papers dir", papers is not None and papers.exists(), str(papers)))
-        checks.append(
-            ("index.md", cfg.index_path is not None and cfg.index_path.exists(), str(cfg.index_path))
-        )
-        checks.append(("log.md", cfg.log_path is not None and cfg.log_path.exists(), str(cfg.log_path)))
-    try:
-        cfg.pdf_dir.mkdir(parents=True, exist_ok=True)
-        checks.append(("pdf dir writable", True, str(cfg.pdf_dir)))
-    except OSError as exc:
-        checks.append(("pdf dir writable", False, str(exc)))
-    try:
-        State(cfg.state_db).close()
-        checks.append(("state db writable", True, str(cfg.state_db)))
-    except Exception as exc:
-        checks.append(("state db writable", False, str(exc)))
-    if not cfg.unpaywall_email:
-        checks.append(("unpaywall email", False, "empty — OA lookup disabled"))
-    else:
-        checks.append(("unpaywall email", True, cfg.unpaywall_email))
-    # optional subsystems (informational — failures don't block the core loop)
-    if cfg.translation_server_url:
-        try:
-            import urllib.request as _ur
-
-            with _ur.urlopen(cfg.translation_server_url + "/", timeout=4) as r:
-                checks.append(("translation-server", True, cfg.translation_server_url))
-        except Exception:
-            checks.append(("translation-server", False, cfg.translation_server_url + " unreachable"))
-    if cfg.feat_related or cfg.feat_synthesis:
-        try:
-            import urllib.request as _ur
-
-            with _ur.urlopen(cfg.ollama_url + "/api/tags", timeout=4) as r:
-                ok = r.status == 200
-            checks.append(("ollama (embeddings)", ok, cfg.ollama_url))
-        except Exception:
-            checks.append(("ollama (embeddings)", False,
-                           cfg.ollama_url + " unreachable — related/synthesis suggestions off"))
-    if cfg.proxy_enabled:
-        tmpl_ok = "{url}" in cfg.proxy_url_template
-        checks.append(("proxy url_template", tmpl_ok,
-                       cfg.proxy_url_template or "empty"))
-        ck = Path(os.path.expanduser(cfg.proxy_cookie_file)) if cfg.proxy_cookie_file else None
-        checks.append(("proxy cookie file", ck is not None and ck.exists(),
-                       str(ck) if ck else "not set"))
-        if ck is not None and ck.exists():
-            mode = ck.stat().st_mode & 0o777
-            checks.append(("proxy cookie permissions", mode in (0o600, 0o400),
-                           oct(mode) + (" — run: chmod 600 " + str(ck) if mode not in (0o600, 0o400) else "")))
-    if cfg.alerts_enabled:
-        checks.append(("alerts keywords", bool(cfg.alerts_keywords),
-                       ", ".join(cfg.alerts_keywords) or "empty"))
-    if cfg.analysis_engine != "none":
-        import shutil as _sh
-
-        from zotvault import analyze as _an
-
-        checks.append(("analysis engine", cfg.analysis_engine in _an.ENGINES,
-                       _an.engine_label(cfg)))
-        checks.append(("pdftotext (full-text input)", _an.pdftotext_available(),
-                       "poppler" if _an.pdftotext_available() else "missing — falls back to abstract-only"))
-        if cfg.analysis_engine == "claude-cli":
-            checks.append(("claude CLI", _sh.which("claude") is not None, _sh.which("claude") or "not found"))
-        if cfg.analysis_engine == "ollama":
-            checks.append(("analysis model set", bool(cfg.analysis_model), cfg.analysis_model or "set [analysis] model"))
-        if cfg.analysis_engine == "openai-compatible":
-            checks.append(("analysis base_url", bool(cfg.analysis_base_url), cfg.analysis_base_url or "set [analysis] base_url"))
-        if cfg.analysis_engine == "anthropic":
-            import os as _os
-            has_key = bool(cfg.analysis_api_key or _os.environ.get("ANTHROPIC_API_KEY"))
-            checks.append(("anthropic api key", has_key, "set" if has_key else "missing"))
-    return checks
 
 
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
@@ -580,8 +548,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version="zotvault " + __version__)
     sub = p.add_subparsers(dest="command")
 
-    sp = sub.add_parser("init", help="create the config file")
+    sp = sub.add_parser("init", help="interactive setup: create the config file + doctor")
     sp.add_argument("--force", action="store_true")
+    sp.add_argument("--yes", action="store_true",
+                    help="non-interactive: write the unmodified template")
 
     sub.add_parser("doctor", help="environment health check")
 

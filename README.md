@@ -42,9 +42,8 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 ```bash
 pip install zotvault                   # or: pipx install zotvault / uv tool install zotvault
 # (from source: git clone https://github.com/jbaek-dev/ZotVault && pip install ./ZotVault)
-zotvault init                          # writes ~/.zotvault/config.toml
-# edit: [vault] dir, [pdf] unpaywall_email  (+ [alerts] keywords if you want digests)
-zotvault doctor                        # verifies Zotero, Better BibTeX, vault paths
+zotvault init                          # interactive setup: paths, email, vault scaffolding + doctor
+# (--yes for the non-interactive template; add [alerts] keywords later if you want digests)
 zotvault run-once --dry-run
 zotvault run-once
 ```
