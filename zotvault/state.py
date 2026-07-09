@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS citations (
 
 # Guarded column additions for DBs created by older versions.
 _MIGRATIONS = [
+    "ALTER TABLE items ADD COLUMN ignored INTEGER DEFAULT 0",
     "ALTER TABLE items ADD COLUMN doi TEXT",
     "ALTER TABLE items ADD COLUMN arxiv_id TEXT",
     "ALTER TABLE items ADD COLUMN citation_count INTEGER",
@@ -131,11 +132,45 @@ class State:
 
     def retry_item_ids(self) -> Set[int]:
         rows = self.conn.execute(
-            "SELECT item_id FROM items WHERE deleted=0 AND "
+            "SELECT item_id FROM items WHERE deleted=0 AND ignored=0 AND "
             "(citekey IS NULL OR note_status IN ('pending','error','dry-run','disabled','blocked') "
             " OR pdf_status IN ('pending','deferred','error','disabled'))"
         )
         return {r["item_id"] for r in rows}
+
+    def set_ignored(self, item_key: str, flag: bool) -> bool:
+        cur = self.conn.execute(
+            "UPDATE items SET ignored=? WHERE item_key=?", (1 if flag else 0, item_key))
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def ignored_identifiers(self) -> Dict[str, str]:
+        """lowercased doi/arxiv id -> citekey, for rows the user dismissed."""
+        out: Dict[str, str] = {}
+        for r in self.conn.execute(
+                "SELECT doi, arxiv_id, citekey, item_key FROM items WHERE ignored=1"):
+            ck = r["citekey"] or r["item_key"]
+            if r["doi"]:
+                out[r["doi"].lower()] = ck
+            if r["arxiv_id"]:
+                out[r["arxiv_id"].lower()] = ck
+        return out
+
+    def attention_rows(self) -> Dict[str, List[sqlite3.Row]]:
+        """Rows the user may want to act on (file existence checked by caller)."""
+        missing = self.conn.execute(
+            "SELECT * FROM items WHERE deleted=0 AND ignored=0 AND note_status='missing' "
+            "ORDER BY citekey").fetchall()
+        vault_only = self.conn.execute(
+            "SELECT * FROM items WHERE deleted=1 AND ignored=0 AND note_path IS NOT NULL "
+            "ORDER BY citekey").fetchall()
+        ignored = self.conn.execute(
+            "SELECT * FROM items WHERE ignored=1 ORDER BY citekey").fetchall()
+        return {"missing": missing, "vault_only": vault_only, "ignored": ignored}
+
+    def item_by_key(self, item_key: str) -> Optional[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM items WHERE item_key=?", (item_key,)).fetchone()
 
     def upsert_item(self, item_id: int, **fields: Any) -> None:
         existing = self.conn.execute(
@@ -186,19 +221,19 @@ class State:
     def counts(self) -> Dict[str, int]:
         out: Dict[str, int] = {}
         out["items"] = self.conn.execute(
-            "SELECT COUNT(*) c FROM items WHERE deleted=0"
+            "SELECT COUNT(*) c FROM items WHERE deleted=0 AND ignored=0"
         ).fetchone()["c"]
         out["analyzed"] = self.conn.execute(
-            "SELECT COUNT(*) c FROM items WHERE deleted=0 AND analysis_done=1"
+            "SELECT COUNT(*) c FROM items WHERE deleted=0 AND ignored=0 AND analysis_done=1"
         ).fetchone()["c"]
         for status in ("created", "existing", "pending", "error"):
             out["note_" + status] = self.conn.execute(
-                "SELECT COUNT(*) c FROM items WHERE deleted=0 AND note_status=?",
+                "SELECT COUNT(*) c FROM items WHERE deleted=0 AND ignored=0 AND note_status=?",
                 (status,),
             ).fetchone()["c"]
         for status in ("zotero", "downloaded", "cached", "missing", "deferred"):
             out["pdf_" + status] = self.conn.execute(
-                "SELECT COUNT(*) c FROM items WHERE deleted=0 AND pdf_status=?",
+                "SELECT COUNT(*) c FROM items WHERE deleted=0 AND ignored=0 AND pdf_status=?",
                 (status,),
             ).fetchone()["c"]
         return out

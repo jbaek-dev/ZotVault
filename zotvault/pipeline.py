@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional
 
 from zotvault import analysis_queue, indexer, note_renderer, pdf_resolver
@@ -121,7 +122,11 @@ def _process_item(
     # --- note ---------------------------------------------------------------
     note_status = prev["note_status"] if prev is not None else "pending"
     note_path: Optional[str] = prev["note_path"] if prev is not None else None
-    if cfg.create_notes and cfg.papers_dir is not None:
+    if prev is not None and prev["note_status"] == "missing":
+        # The user deleted this note in the vault. Never recreate it behind
+        # their back — the dashboard offers Recreate / Ignore (v0.9.3).
+        pass
+    elif cfg.create_notes and cfg.papers_dir is not None:
         status, path = note_renderer.write_note(cfg.papers_dir, item, dry_run=cfg.dry_run, cfg=cfg)
         note_status, note_path = status, str(path)
         if status == "created":
@@ -289,6 +294,22 @@ def run_once(cfg: Config, state: State) -> RunSummary:
                 )
         state.kv_set("doi_backfill_done", "1")
         state.trace("metadata_backfill", "", "doi/arxiv refreshed for {} items".format(len(known)))
+    # note gone / returned (vault side). Runs BEFORE item processing so a
+    # user-deleted note is never recreated behind their back — it is marked
+    # 'missing' and the dashboard offers Recreate / Ignore (v0.9.3).
+    for it in items:
+        row = state.get_item(it.item_id)
+        if row is None or row["deleted"] or row["ignored"] or not row["note_path"]:
+            continue
+        exists = Path(row["note_path"]).exists()
+        if row["note_status"] in ("created", "existing") and not exists:
+            state.upsert_item(it.item_id, note_status="missing")
+            state.trace("note_missing", row["citekey"] or it.item_key,
+                        "note folder deleted in vault — recreate or ignore in the dashboard")
+        elif row["note_status"] == "missing" and exists:
+            state.upsert_item(it.item_id, note_status="existing")
+            state.trace("note_restored", row["citekey"] or it.item_key, "note reappeared")
+
     retry_ids = state.retry_item_ids()
     current_ids = set()
     targets: List[RawItem] = []

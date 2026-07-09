@@ -70,6 +70,13 @@
     <a href="https://github.com/jbaek-dev/ZotVault#quick-start" target="_blank">setup guide</a></div>
 </section>
 
+<section id="attn-sec" style="display:none">
+  <h2>Needs attention <span class="muted" id="attn-count"></span></h2>
+  <div id="attn"></div>
+  <div style="margin-top:8px"><a href="#" class="muted" id="ign-toggle" onclick="toggleIgnored(event)">show ignore list</a></div>
+  <div id="ignored" style="display:none; margin-top:6px"></div>
+</section>
+
 <section id="status-sec">
   <h2>Status</h2>
   <div class="stats" id="stats"></div>
@@ -137,7 +144,7 @@ async function refreshStatus(){
   const c = s.counts||{};
   $("stats").innerHTML = [
     ["items", c.items], ["analyzed", c.analyzed],
-    ["queue", (c.items||0)-(c.analyzed||0)],
+    ["queue", `<span id="stat-queue">${lastQueueLen ?? "–"}</span>`],
     ["PDF via Zotero", c.pdf_zotero], ["PDF downloaded", (c.pdf_downloaded||0)+(c.pdf_cached||0)],
     ["PDF missing", c.pdf_missing],
     ["downloads today", s.downloads_today+" / "+s.download_limit],
@@ -147,6 +154,8 @@ async function refreshStatus(){
 
 async function refreshQueue(){
   const q = await api("/api/queue");
+  lastQueueLen = Array.isArray(q) ? q.length : null;
+  const el = $("stat-queue"); if(el && lastQueueLen !== null) el.textContent = lastQueueLen;
   if (q.error){ $("queue").innerHTML = `<span class="muted">${esc(q.error)}</span>`; return; }
   $("queue-count").textContent = q.length ? `(${q.length})` : "(empty ✅)";
   $("queue").innerHTML = q.length ? "<table><tr><th>citekey</th><th>PDF</th></tr>" +
@@ -253,6 +262,49 @@ async function runEnrich(){
   toast(r.ok ? "🧠 " + r.message : "⏳ " + (r.message||r.error));
 }
 
+let lastQueueLen = null;
+
+async function refreshAttention(){
+  try{
+    const a = await api("/api/attention");
+    const row = (r, btns) => `<div style="padding:4px 0"><b>${esc(r.citekey)}</b>
+      <span class="muted">${esc(r.title)}</span> ${btns.map(([label,act,tip]) =>
+      `<button class="ghost small" title="${tip}" onclick="attnAction('${r.item_key}','${act}')">${label}</button>`).join(" ")}</div>`;
+    let html = "";
+    if(a.missing.length)
+      html += `<div class="muted" style="margin:4px 0">In Zotero, but the vault note was deleted:</div>` +
+        a.missing.map(r => row(r, [["Recreate note","recreate","create the note again on the next cycle"],
+                                   ["Ignore","ignore","stop tracking this paper in the vault"]])).join("");
+    if(a.vault_only.length)
+      html += `<div class="muted" style="margin:4px 0">Note exists in the vault, but the item was deleted from Zotero:</div>` +
+        a.vault_only.map(r => row(r, [["Re-add to Zotero","readd","save it back into Zotero (DOI/arXiv)"],
+                                      ["Dismiss","dismiss","keep the note, stop tracking — goes to the ignore list"]])).join("");
+    $("attn").innerHTML = html;
+    $("ignored").innerHTML = a.ignored.length
+      ? a.ignored.map(r => row(r, [["Unignore","unignore","start tracking this paper again"]])).join("")
+      : '<span class="muted">empty</span>';
+    $("ign-toggle").textContent = ($("ignored").style.display==="none" ? "show" : "hide") +
+      " ignore list (" + a.ignored.length + ")";
+    const n = a.missing.length + a.vault_only.length;
+    $("attn-count").textContent = n ? n + " item(s)" : "";
+    $("attn-sec").style.display = (n || a.ignored.length) ? "block" : "none";
+  }catch(e){ /* keep hidden */ }
+}
+
+async function attnAction(key, action){
+  const r = await api("/api/attention/action", {method:"POST",
+    body: JSON.stringify({item_key:key, action:action})});
+  toast(r.ok ? "✅ " + r.message : "⚠️ " + (r.message||r.error), 5000);
+  setTimeout(()=>{ refreshAttention(); refreshStatus(); refreshQueue(); }, 800);
+}
+
+function toggleIgnored(ev){
+  ev.preventDefault();
+  const d = $("ignored");
+  d.style.display = d.style.display==="none" ? "block" : "none";
+  refreshAttention();
+}
+
 const CORE_CHECKS = ["config file","zotero data dir","zotero.sqlite","zotero running (connector ping)","vault dir"];
 async function refreshSetup(force){
   try{
@@ -270,7 +322,7 @@ async function refreshSetup(force){
   }catch(e){ /* doctor unavailable — leave hidden */ }
 }
 
-function refreshAll(){ refreshStatus(); refreshQueue(); refreshAlerts(); refreshSuggestions(); refreshTrace(); refreshSetup(false); }
+function refreshAll(){ refreshStatus(); refreshQueue(); refreshAlerts(); refreshSuggestions(); refreshTrace(); refreshSetup(false); refreshAttention(); }
 refreshAll();
 setInterval(refreshStatus, 30000);
 setInterval(refreshQueue, 60000);

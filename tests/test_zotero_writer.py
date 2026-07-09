@@ -151,6 +151,7 @@ class TestOaAttachment(unittest.TestCase):
         state = mock.Mock()
         state.doi_map.return_value = {}
         state.arxiv_map.return_value = {}
+        state.ignored_identifiers.return_value = {}
         saved = {}
 
         def fake_save(items, url, timeout=30):

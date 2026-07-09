@@ -1,7 +1,7 @@
 {
   "meta": {
     "app": "ZotVault",
-    "version": "0.9.1",
+    "version": "0.9.3",
     "purpose": "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect -> note -> PDF (OA-first) -> AI-analysis queue -> vault index, plus search/add, dashboard, alerts, citation graph, related papers, synthesis suggestions.",
     "updated": "2026-07-08",
     "note": "Lightweight orientation map for humans and AI agents. The CODE is the source of truth; regenerate/adjust this file whenever module-level structure changes. Read AGENTS.md first for the change protocol.",
@@ -86,6 +86,13 @@
       "key": [
         "State",
         "_MIGRATIONS"
+      ],
+      "key_symbols": [
+        "attention_rows",
+        "ignored_identifiers",
+        "item_by_key",
+        "mark_deleted",
+        "set_ignored"
       ]
     },
     {
@@ -167,7 +174,7 @@
     },
     {
       "file": "zotvault/pipeline.py",
-      "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records",
+      "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records | v0.9.3: reconciliation — user-deleted notes marked note_status='missing' BEFORE item processing (never auto-recreated; _process_item guards on it); Zotero-deleted items were already mark_deleted",
       "key": [
         "run_once",
         "RunSummary",
@@ -336,7 +343,8 @@
       "dashboard UI",
       "Polaris tools (polaris/tools/zotvault_tools.py in the Polaris repo)",
       "any local agent"
-    ]
+    ],
+    "/api/attention": "GET reconciliation lists {missing, vault_only, ignored}; POST /api/attention/action {item_key, action: recreate|ignore|dismiss|readd|unignore}"
   },
   "external_apis": {
     "zotero_local": "127.0.0.1:23119 — /connector/ping, /connector/saveItems (write channel), /better-bibtex/json-rpc (citekeys)",

@@ -14,6 +14,8 @@ Endpoints (JSON unless noted):
   POST /api/enrich          run enrichment in the background
   GET  /api/trace           ?limit=30
   GET  /api/doctor          environment health checks (doctor)
+  GET  /api/attention       reconciliation lists (missing notes / vault-only / ignored)
+  POST /api/attention/action {"item_key": K, "action": "recreate|ignore|dismiss|readd|unignore"}
 
 No authentication — bind to 127.0.0.1 only (default). Do not expose publicly.
 """
@@ -121,6 +123,8 @@ def make_handler(cfg: Config):
                     self._json(self._trace())
                 elif r == "/api/doctor":
                     self._json(self._doctor())
+                elif r == "/api/attention":
+                    self._json(self._attention())
                 else:
                     self._json({"error": "not found"}, 404)
             except Exception as exc:
@@ -147,6 +151,8 @@ def make_handler(cfg: Config):
                     self._json(_run_pipeline_guarded(cfg))
                 elif r == "/api/alerts/action":
                     self._json(self._alert_action())
+                elif r == "/api/attention/action":
+                    self._json(self._attention_action())
                 elif r == "/api/enrich":
                     self._json(self._enrich_bg())
                 elif r == "/api/analyze":
@@ -176,6 +182,68 @@ def make_handler(cfg: Config):
                     "analyses_today": state.analyses_today(),
                     "analysis_limit": cfg.analysis_daily_limit,
                 }
+            finally:
+                state.close()
+
+        def _attention(self) -> Any:
+            state = State(cfg.state_db)
+            try:
+                rows = state.attention_rows()
+            finally:
+                state.close()
+
+            def slim(r: Any) -> Dict[str, Any]:
+                return {"item_key": r["item_key"],
+                        "citekey": r["citekey"] or r["item_key"],
+                        "title": (r["title"] or "")[:140],
+                        "doi": r["doi"] or "", "arxiv": r["arxiv_id"] or ""}
+
+            vault_only = [slim(r) for r in rows["vault_only"]
+                          if r["note_path"] and Path(r["note_path"]).exists()]
+            return {"missing": [slim(r) for r in rows["missing"]],
+                    "vault_only": vault_only,
+                    "ignored": [slim(r) for r in rows["ignored"]]}
+
+        def _attention_action(self) -> Any:
+            body = self._body()
+            key = str(body.get("item_key") or "")
+            action = str(body.get("action") or "")
+            state = State(cfg.state_db)
+            try:
+                row = state.item_by_key(key)
+                if row is None:
+                    return {"error": "unknown item"}
+                ck = row["citekey"] or key
+                if action == "recreate":
+                    state.upsert_item(row["item_id"], note_status="pending")
+                    state.trace("note_recreate_requested", ck, "dashboard")
+
+                    def _kick() -> None:
+                        time.sleep(1)
+                        _run_pipeline_guarded(cfg)
+                    threading.Thread(target=_kick, daemon=True,
+                                     name="zotvault-recreate").start()
+                    return {"ok": True, "message": "recreating {} now".format(ck)}
+                if action in ("ignore", "dismiss"):
+                    state.set_ignored(key, True)
+                    state.trace("item_ignored", ck, action)
+                    return {"ok": True, "message": "{} moved to the ignore list".format(ck)}
+                if action == "unignore":
+                    state.set_ignored(key, False)
+                    state.trace("item_unignored", ck, "")
+                    return {"ok": True, "message": "{} removed from the ignore list".format(ck)}
+                if action == "readd":
+                    ident = row["doi"] or row["arxiv_id"]
+                    if not ident:
+                        return {"error": "no DOI/arXiv id stored for {} — use search/add".format(ck)}
+                    from zotvault.zotero_writer import add_identifiers
+                    res = add_identifiers([ident], cfg, state, force=True)[0]
+                    if res.get("status") == "added":
+                        state.set_ignored(key, True)  # ghost row is now history
+                        state.trace("item_readded", ck, ident)
+                    return {"ok": res.get("status") == "added",
+                            "message": res.get("message", "")}
+                return {"error": "unknown action"}
             finally:
                 state.close()
 

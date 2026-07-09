@@ -309,12 +309,14 @@ def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
     state = State(cfg.state_db)
     try:
         results = add_identifiers(args.identifiers, cfg, state,
-                                  attach_pdf=not args.no_pdf, dry_run=args.dry_run)
+                                  attach_pdf=not args.no_pdf, dry_run=args.dry_run,
+                                  force=getattr(args, "force", False))
     finally:
         state.close()
     failures = 0
     for r in results:
-        mark = {"added": "✅", "resolved": "🔎", "duplicate": "↩️", "error": "❌"}.get(r["status"], "•")
+        mark = {"added": "✅", "resolved": "🔎", "duplicate": "↩️", "ignored": "🚫",
+                "error": "❌"}.get(r["status"], "•")
         if r["status"] == "error":
             failures += 1
         _print("{} [{}] {} — {}".format(mark, r["status"], r.get("title") or r["identifier"],
@@ -573,6 +575,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("identifiers", nargs="+")
     sp.add_argument("--dry-run", action="store_true", help="resolve metadata only")
     sp.add_argument("--no-pdf", action="store_true", help="don't attach the arXiv PDF")
+    sp.add_argument("--force", action="store_true",
+                    help="add even if the paper is on the ignore list")
 
     sp = sub.add_parser("search", help="search arXiv / Semantic Scholar / Crossref")
     sp.add_argument("query")

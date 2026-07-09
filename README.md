@@ -28,6 +28,7 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 - **Citation graph** — Semantic Scholar citation counts + who-cites-whom *within your library*, regenerated into `Citation_Graph.md`.
 - **Related papers** — local [Ollama](https://ollama.com) embeddings over your analysis notes → `Related_Suggestions.md` link candidates. Free, offline.
 - **Synthesis suggestions** — clusters analyzed-but-unsynthesized papers into proposed review topics.
+- **Reconciliation, on your terms** — deletions are detected on both sides but never acted on silently: a vault note you deleted is marked *missing* (dashboard: Recreate / Ignore), a paper deleted from Zotero shows up as *vault-only* (Re-add / Dismiss), and dismissed papers live on a reviewable ignore list that also guards `add`.
 - **Auditable** — every automatic action lands in a SQLite trace (`zotvault trace`).
 
 ## Requirements

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.3 — 2026-07-09 (Zotero <-> vault reconciliation)
+
+Closes the "deletions leave ghosts" gap found in real use (dashboard queue
+count disagreed with the actual note folders):
+
+- **Vault note deleted by the user** (item still in Zotero): detected on scan
+  and marked `missing` — **never recreated behind your back**. The dashboard's
+  new *Needs attention* card offers **Recreate note** / **Ignore** per paper.
+- **Item deleted from Zotero** (note still in the vault): listed with
+  **Re-add to Zotero** (uses the stored DOI/arXiv id, connector channel) /
+  **Dismiss**. The note itself is never touched (standing invariant).
+- **Ignore list**: dismissed/ignored papers are excluded from counts, retries
+  and the queue; viewable/undoable via a dashboard toggle; `zotvault add` of
+  an ignored paper warns and requires `--force` (or Unignore).
+- Dashboard **queue stat now shows the real queue length** instead of
+  items−analyzed arithmetic (the source of the original confusion).
+- New: `GET /api/attention`, `POST /api/attention/action`. 122 tests.
+
 ## 0.9.2 — 2026-07-08 (first-run experience)
 
 - **Interactive setup**: `zotvault init` is now a wizard when run in a

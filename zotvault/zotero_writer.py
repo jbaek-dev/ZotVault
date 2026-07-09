@@ -326,11 +326,13 @@ def _oa_pdf_url(doi: str, cfg: Config) -> str:
 
 
 def add_identifiers(identifiers: List[str], cfg: Config, state: State,
-                    attach_pdf: bool = True, dry_run: bool = False) -> List[Dict[str, Any]]:
+                    attach_pdf: bool = True, dry_run: bool = False,
+                    force: bool = False) -> List[Dict[str, Any]]:
     """Resolve each identifier and save it to Zotero. Returns per-identifier results."""
     results: List[Dict[str, Any]] = []
     doi_map = state.doi_map()
     arxiv_map = state.arxiv_map()
+    ignored = {} if force else state.ignored_identifiers()
     for raw in identifiers:
         kind, norm = classify_identifier(raw)
         res: Dict[str, Any] = {"identifier": raw, "kind": kind, "normalized": norm}
@@ -348,6 +350,13 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
             if dup:
                 res.update(status="duplicate", citekey=dup,
                            message="already in library as {}".format(dup))
+                results.append(res)
+                continue
+            ign = ignored.get(norm.lower()) or ignored.get(norm.lower().split("v")[0])
+            if ign:
+                res.update(status="ignored", citekey=ign,
+                           message="on your ignore list (dismissed as {}) — "
+                                   "unignore in the dashboard, or CLI: add --force".format(ign))
                 results.append(res)
                 continue
             # resolve

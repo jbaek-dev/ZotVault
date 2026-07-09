@@ -180,3 +180,80 @@ class TestPipelineE2E(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestReconciliation(TestPipelineE2E):
+    """v0.9.3 — vault-deleted notes and the ignore list."""
+
+    def test_deleted_note_becomes_missing_not_recreated(self):
+        import shutil
+
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        folder = self.vault / "30_Resources/Papers/zotero/one2024"
+        self.assertTrue(folder.exists())
+        shutil.rmtree(folder)                      # user deletes the note
+        # force a fresh scan (DB-sig skip would bypass the check)
+        state = State(self.cfg.state_db)
+        state.kv_set("zotero_db_sig", "")
+        state.close()
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        state = State(self.cfg.state_db)
+        row = state.item_by_key("AAA10")
+        self.assertEqual(row["note_status"], "missing")
+        self.assertFalse(folder.exists(), "must NOT be auto-recreated")
+        # attention list contains it
+        self.assertEqual([r["citekey"] for r in state.attention_rows()["missing"]],
+                         ["one2024"])
+        state.close()
+
+    def test_restored_note_flips_back(self):
+        import shutil
+
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        folder = self.vault / "30_Resources/Papers/zotero/one2024"
+        backup = self.vault / "backup"
+        shutil.move(str(folder), str(backup))
+        state = State(self.cfg.state_db)
+        state.kv_set("zotero_db_sig", "")
+        state.close()
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        shutil.move(str(backup), str(folder))      # user restores it
+        state = State(self.cfg.state_db)
+        state.kv_set("zotero_db_sig", "")
+        state.close()
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        state = State(self.cfg.state_db)
+        self.assertEqual(state.item_by_key("AAA10")["note_status"], "existing")
+        state.close()
+
+    def test_ignored_excluded_from_counts_and_retry(self):
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        state = State(self.cfg.state_db)
+        before = state.counts()["items"]
+        self.assertTrue(state.set_ignored("AAA10", True))
+        c = state.counts()
+        self.assertEqual(c["items"], before - 1)
+        self.assertNotIn(
+            state.item_by_key("AAA10")["item_id"], state.retry_item_ids())
+        state.close()
+
+    def test_add_guard_blocks_ignored_doi(self):
+        from zotvault.zotero_writer import add_identifiers
+
+        self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        state = State(self.cfg.state_db)
+        # give the row a regex-valid DOI, then dismiss it
+        state.upsert_item(state.item_by_key("AAA10")["item_id"], doi="10.1234/one")
+        state.set_ignored("AAA10", True)
+        # deleted in Zotero too -> not a duplicate, but IS on the ignore list
+        state.mark_deleted(state.item_by_key("AAA10")["item_id"])
+        res = add_identifiers(["10.1234/one"], self.cfg, state)
+        self.assertEqual(res[0]["status"], "ignored")
+        with mock.patch("zotvault.zotero_writer.resolve_doi",
+                        return_value={"itemType": "journalArticle", "title": "T"}), \
+             mock.patch("zotvault.zotero_writer.save_items_to_zotero",
+                        return_value=(True, "saved")):
+            res = add_identifiers(["10.1234/one"], self.cfg, state, force=True,
+                                  attach_pdf=False)
+        self.assertEqual(res[0]["status"], "added")
+        state.close()
