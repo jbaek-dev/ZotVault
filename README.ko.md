@@ -37,7 +37,7 @@ zotvault web   # → http://127.0.0.1:8377 (localhost 전용)
 | `assist` | 소형 로컬모델로 알림 관련도 점수(0–10) 매기기 (옵트인) |
 | `enrich` / `related <citekey>` / `synthesis` | 인용그래프·관련추천·클러스터 |
 | `install-daemon` | 자동시작: launchd(macOS)/systemd(Linux)/schtasks 안내(Windows) |
-| `tray` | 데몬+트레이 아이콘 (`pip install ".[tray]"` 필요) |
+| `tray` | 데몬+트레이 아이콘 (`pip install "zotvault[tray]"` 필요) |
 
 ## 안전 보장
 
