@@ -93,3 +93,91 @@ class TestParsers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+MML_TITLE = (
+    'Tunable Berry curvature and valley and spin Hall effect in bilayer '
+    '<mml:math xmlns:mml="http://www.w3.org/1998/Math/MathML"><mml:msub>'
+    '<mml:mi>MoS</mml:mi><mml:mn>2</mml:mn></mml:msub></mml:math>'
+)
+
+
+class TestStripMarkup(unittest.TestCase):
+    """Crossref embeds MathML/JATS in titles (v0.9.1 user-reported bug)."""
+
+    def test_mathml_title_joins_text_nodes(self):
+        from zotvault.zotero_writer import strip_markup
+        self.assertEqual(
+            strip_markup(MML_TITLE),
+            "Tunable Berry curvature and valley and spin Hall effect in bilayer MoS2")
+
+    def test_latex_annotation_not_duplicated(self):
+        from zotvault.zotero_writer import strip_markup
+        t = ('gap of <mml:math><mml:semantics><mml:msub><mml:mi>WSe</mml:mi>'
+             '<mml:mn>2</mml:mn></mml:msub><mml:annotation encoding='
+             '"application/x-tex">WSe_2</mml:annotation></mml:semantics></mml:math>')
+        self.assertEqual(strip_markup(t), "gap of WSe2")
+
+    def test_entities_and_whitespace(self):
+        from zotvault.zotero_writer import strip_markup
+        self.assertEqual(strip_markup("Spin &amp;  valley\n physics"),
+                         "Spin & valley physics")
+
+    def test_abstract_keeps_word_boundaries(self):
+        from zotvault.zotero_writer import strip_markup
+        t = "<jats:title>Abstract</jats:title><jats:p>We study X.</jats:p>"
+        self.assertEqual(strip_markup(t, sep=" "), "Abstract We study X.")
+
+    def test_parse_crossref_sanitizes_title(self):
+        msg = dict(CROSSREF_MSG, title=[MML_TITLE],
+                   **{"container-title": ["Physical Review <i>B</i>"]})
+        item = parse_crossref(msg)
+        self.assertNotIn("<", item["title"])
+        self.assertTrue(item["title"].endswith("bilayer MoS2"))
+        self.assertEqual(item["publicationTitle"], "Physical Review B")
+
+
+class TestOaAttachment(unittest.TestCase):
+    """DOI adds attach an OA PDF url so Zotero downloads it itself (v0.9.1)."""
+
+    def _run_add(self, oa_urls, email="me@example.org"):
+        from unittest import mock
+
+        from zotvault.config import Config
+        from zotvault.zotero_writer import add_identifiers
+
+        cfg = Config()
+        cfg.unpaywall_email = email
+        state = mock.Mock()
+        state.doi_map.return_value = {}
+        state.arxiv_map.return_value = {}
+        saved = {}
+
+        def fake_save(items, url, timeout=30):
+            saved["items"] = items
+            return True, "saved"
+
+        with mock.patch("zotvault.zotero_writer.resolve_doi",
+                        return_value={"itemType": "journalArticle", "title": "T"}), \
+             mock.patch("zotvault.pdf_resolver.unpaywall_pdf_urls",
+                        return_value=oa_urls), \
+             mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save):
+            results = add_identifiers(["10.1103/PhysRevB.90.1"], cfg, state)
+        return results, saved
+
+    def test_oa_found_lands_in_payload(self):
+        results, saved = self._run_add(["https://oa.example/x.pdf"])
+        self.assertEqual(results[0]["status"], "added")
+        att = saved["items"][0]["attachments"]
+        self.assertEqual(att[0]["url"], "https://oa.example/x.pdf")
+        self.assertEqual(att[0]["mimeType"], "application/pdf")
+        self.assertIn("PDF", results[0]["message"])
+
+    def test_no_oa_is_graceful(self):
+        results, saved = self._run_add([])
+        self.assertEqual(results[0]["status"], "added")
+        self.assertNotIn("attachments", saved["items"][0])
+
+    def test_no_email_skips_lookup(self):
+        results, saved = self._run_add(["https://oa.example/x.pdf"], email="")
+        self.assertNotIn("attachments", saved["items"][0])

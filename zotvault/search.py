@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from zotvault import __version__
 from zotvault.config import Config
 from zotvault.state import State
-from zotvault.zotero_writer import parse_arxiv_atom
+from zotvault.zotero_writer import parse_arxiv_atom, strip_markup
 
 
 @dataclass
@@ -136,10 +136,10 @@ def search_crossref(query: str, max_results: int = 20, timeout: int = 20) -> Lis
         container = m.get("container-title") or []
         out.append(SearchResult(
             source="crossref",
-            title=" ".join((titles[0] if titles else "").split()),
+            title=strip_markup(titles[0] if titles else ""),
             authors=", ".join(a for a in authors if a),
             year=str(parts[0][0] or "") if parts and parts[0] else "",
-            venue=container[0] if container else "",
+            venue=strip_markup(container[0] if container else ""),
             doi=(m.get("DOI") or "").lower(),
             citations=m.get("is-referenced-by-count"),
         ))

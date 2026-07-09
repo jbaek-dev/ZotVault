@@ -14,6 +14,7 @@ daemon picks the new item up on its next cycle (note -> PDF -> queue).
 """
 from __future__ import annotations
 
+import html
 import json
 import re
 import urllib.error
@@ -103,14 +104,31 @@ def classify_identifier(raw: str) -> Tuple[str, str]:
 # native resolvers (pure parse functions kept separate for testability)
 # ---------------------------------------------------------------------------
 
+def strip_markup(text: str, sep: str = "") -> str:
+    """Remove embedded XML/HTML (JATS, MathML) from Crossref-style rich text.
+
+    Crossref ships titles like ``bilayer <mml:math…><mml:msub><mml:mi>MoS
+    </mml:mi><mml:mn>2</mml:mn></mml:msub></mml:math>`` — for titles the tag
+    replacement must be EMPTY so adjacent text nodes join ("MoS" + "2" →
+    "MoS2"); for abstracts a space keeps JATS paragraphs apart. LaTeX
+    ``<mml:annotation>`` duplicates the rendered text, so it is dropped
+    wholesale. Entities are unescaped last (safe: tags are already gone).
+    """
+    t = re.sub(r"<mml:annotation\b[^>]*>.*?</mml:annotation>", "", text or "",
+               flags=re.S | re.I)
+    t = re.sub(r"<[^>]+>", sep, t)
+    t = html.unescape(t)
+    return " ".join(t.split())
+
+
 def _strip_jats(text: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text or "")).strip()
+    return strip_markup(text, sep=" ")
 
 
 def parse_crossref(msg: Dict[str, Any]) -> Dict[str, Any]:
     itype = _CROSSREF_TYPE_MAP.get(msg.get("type", ""), "journalArticle")
     titles = msg.get("title") or []
-    title = " ".join((titles[0] if titles else "").split())
+    title = strip_markup(titles[0] if titles else "")
     creators = []
     for a in msg.get("author") or []:
         if a.get("family"):
@@ -138,7 +156,7 @@ def parse_crossref(msg: Dict[str, Any]) -> Dict[str, Any]:
         "libraryCatalog": "Crossref (ZotVault)",
     }
     if itype in ("journalArticle", "conferencePaper"):
-        item["publicationTitle"] = container[0] if container else ""
+        item["publicationTitle"] = strip_markup(container[0] if container else "")
     if itype == "preprint":
         item["repository"] = (msg.get("institution") or [{}])[0].get("name", "") if msg.get("institution") else ""
     return item
@@ -158,7 +176,7 @@ def parse_datacite(attrs: Dict[str, Any]) -> Dict[str, Any]:
             creators.append({"creatorType": "author", "lastName": c["name"], "fieldMode": 1})
     return {
         "itemType": "journalArticle",
-        "title": titles[0].get("title", ""),
+        "title": strip_markup(titles[0].get("title", "")),
         "creators": creators,
         "date": str(attrs.get("publicationYear", "") or ""),
         "DOI": attrs.get("doi", ""),
@@ -290,6 +308,23 @@ def save_items_to_zotero(items: List[Dict[str, Any]], connector_url: str,
         return False, "Zotero unreachable ({}) — is the desktop app running?".format(exc)
 
 
+def _oa_pdf_url(doi: str, cfg: Config) -> str:
+    """Best OA PDF url for a DOI (one quick Unpaywall lookup), '' when none.
+
+    Used to put an `attachments` entry into the saveItems payload so that
+    ZOTERO downloads the PDF itself into its own storage — exactly what the
+    browser connector does. ZotVault still never writes storage/; licensed
+    (proxy) PDFs are not attempted here and stay on the daemon's OA→proxy
+    fallback path into ~/.zotvault/pdfs/.
+    """
+    try:
+        from zotvault.pdf_resolver import unpaywall_pdf_urls
+        urls = unpaywall_pdf_urls(doi, cfg.unpaywall_email, timeout=15)
+        return urls[0] if urls else ""
+    except Exception:
+        return ""  # advisory only — the daemon fallback still runs
+
+
 def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                     attach_pdf: bool = True, dry_run: bool = False) -> List[Dict[str, Any]]:
     """Resolve each identifier and save it to Zotero. Returns per-identifier results."""
@@ -322,6 +357,8 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 item = items[0]
             elif kind == "doi":
                 item = resolve_doi(norm)
+                if attach_pdf and cfg.unpaywall_email:
+                    pdf_url = _oa_pdf_url(norm, cfg)
             elif kind == "arxiv":
                 item = resolve_arxiv(norm)
                 pdf_url = item.pop("_pdf_url", "")
@@ -338,15 +375,19 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 continue
             if attach_pdf and pdf_url and "attachments" not in item:
                 item["attachments"] = [{
-                    "title": "arXiv PDF", "url": pdf_url, "mimeType": "application/pdf"
+                    "title": "Full Text PDF (OA)", "url": pdf_url,
+                    "mimeType": "application/pdf",
                 }]
+                res["pdf_attached"] = True
             if dry_run:
                 res.update(status="resolved", message="dry-run: not saved")
                 results.append(res)
                 continue
             ok, msg = save_items_to_zotero([item], cfg.connector_url)
             if ok:
-                res.update(status="added", message="saved to Zotero; daemon will pick it up")
+                note = ("saved to Zotero (Zotero is downloading the OA PDF)"
+                        if res.get("pdf_attached") else "saved to Zotero")
+                res.update(status="added", message=note)
                 state.trace("zotero_added", norm, res["title"][:120])
             else:
                 res.update(status="error", message=msg)

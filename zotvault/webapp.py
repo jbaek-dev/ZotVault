@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -217,10 +218,20 @@ def make_handler(cfg: Config):
                 return {"error": "no identifiers"}
             state = State(cfg.state_db)
             try:
-                return add_identifiers([str(i) for i in ids][:20], cfg, state,
-                                       dry_run=bool(body.get("dry_run")))
+                results = add_identifiers([str(i) for i in ids][:20], cfg, state,
+                                          dry_run=bool(body.get("dry_run")))
             finally:
                 state.close()
+            if any(r.get("status") == "added" for r in results):
+                # give Zotero a moment to commit, then run one cycle so the
+                # note/queue/PDF status appear in seconds instead of at the
+                # next poll (no-op if a cycle is already running).
+                def _kick() -> None:
+                    time.sleep(4)
+                    _run_pipeline_guarded(cfg)
+                threading.Thread(target=_kick, daemon=True,
+                                 name="zotvault-post-add").start()
+            return results
 
         def _alerts(self) -> Any:
             state = State(cfg.state_db)

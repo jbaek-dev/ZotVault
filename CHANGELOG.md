@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.1 — 2026-07-08 (first real-use feedback)
+
+- **Fix: MathML/JATS markup in titles** — Crossref ships titles like
+  `bilayer <mml:math…>MoS 2…</mml:math>`; titles (and journal names) from
+  Crossref/DataCite are now sanitized everywhere (add, search results),
+  joining math text nodes correctly ("MoS2") and dropping duplicate LaTeX
+  `<mml:annotation>` bodies.
+- **PDF arrives with the paper**: DOI adds now do one quick Unpaywall lookup
+  and put the OA PDF into the connector payload — *Zotero itself* downloads
+  it into its own storage (same as the browser connector; ZotVault still
+  never writes `storage/`). Licensed/proxy PDFs keep using the daemon's
+  fallback path.
+- **No more 2-minute wait**: a successful add (dashboard or CLI) triggers one
+  immediate pipeline cycle, so the note/queue/PDF status appear in seconds.
+- 109 tests.
+
 ## 0.9.0 — 2026-07-08 (figures, triage, tray)
 
 - **Figure/area annotations embedded**: image and ink annotations now land in

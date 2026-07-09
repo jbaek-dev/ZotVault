@@ -353,9 +353,30 @@ def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
                                          r.get("message", "")))
     if any(r["status"] == "added" for r in results):
         _print()
-        _print("Zotero received the item(s); the daemon (or `zotvault run-once`) will "
-               "create notes / fetch PDFs / queue analysis.")
+        if _kick_daemon_run(cfg):
+            _print("Zotero received the item(s); asked the running daemon for an "
+                   "immediate cycle — note/PDF/queue should appear within seconds.")
+        else:
+            _print("Zotero received the item(s); the daemon (or `zotvault run-once`) will "
+                   "create notes / fetch PDFs / queue analysis.")
     return 0 if failures == 0 else 1
+
+
+def _kick_daemon_run(cfg: Config) -> bool:
+    """Ask a running daemon's dashboard for one immediate pipeline cycle."""
+    import time as _time
+    import urllib.request
+
+    try:
+        _time.sleep(4)  # let Zotero commit the new item first
+        req = urllib.request.Request(
+            "http://{}:{}/api/run-once".format(cfg.web_host, cfg.web_port),
+            data=b"{}", method="POST",
+            headers={"Content-Type": "application/json", "X-ZotVault": "1"})
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
 
 
 def cmd_search(cfg: Config, args: argparse.Namespace) -> int:
