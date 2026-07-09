@@ -18,6 +18,10 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.urls]
+Homepage = "https://github.com/jbaek-dev/ZotVault"
+Changelog = "https://github.com/jbaek-dev/ZotVault/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 tray = ["pystray>=0.19", "Pillow>=9"]
 

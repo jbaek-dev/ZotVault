@@ -40,7 +40,7 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 ## Quick start
 
 ```bash
-git clone https://github.com/jongmin01/ZotVault && cd ZotVault
+git clone https://github.com/jbaek-dev/ZotVault && cd ZotVault
 pip install .                          # or: pipx install .   /   uv tool install .
 zotvault init                          # writes ~/.zotvault/config.toml
 # edit: [vault] dir, [pdf] unpaywall_email  (+ [alerts] keywords if you want digests)

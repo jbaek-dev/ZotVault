@@ -48,7 +48,7 @@ _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 
 def _ua() -> str:
-    return "ZotVault/{} (https://github.com/zotvault; local research tool)".format(__version__)
+    return "ZotVault/{} (https://github.com/jbaek-dev/ZotVault; local research tool)".format(__version__)
 
 
 def _get(url: str, timeout: int = 20, headers: Optional[Dict[str, str]] = None) -> bytes:
