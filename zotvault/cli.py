@@ -110,7 +110,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         _print("ZotVault setup — Enter accepts the [default], blank skips a question.")
         _print()
         while True:
-            vault = _ask("Obsidian vault folder (absolute path; blank = configure later)")
+            vault = _ask("Obsidian/markdown vault folder (blank = Zotero-only mode)")
             if not vault or Path(vault).expanduser().is_dir():
                 break
             if _ask("    '{}' does not exist — use it anyway? (y/N)".format(vault),
@@ -152,6 +152,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     _print("Checking your environment (doctor):")
     cmd_doctor(cfg, args)
     _print()
+    if cfg.vault_dir is None:
+        _print("Starting in Zotero-only mode: search / one-shot add / OA PDFs / "
+               "arXiv alert inbox.")
+        _print("Whenever you adopt Obsidian (any markdown folder works), just set "
+               "[vault] dir — notes, highlight sync and the AI queue switch on.")
+        _print()
     _print("Next steps:")
     _print("  zotvault run-once --dry-run    preview one cycle (writes nothing)")
     _print("  zotvault daemon                run continuously (+ dashboard)")
@@ -162,10 +168,15 @@ def cmd_init(args: argparse.Namespace) -> int:
 def cmd_doctor(cfg: Config, args: argparse.Namespace) -> int:
     ok_all = True
     for name, ok, detail in _checks(cfg):
-        mark = "✅" if ok else "❌"
-        if not ok:
+        optional = "(optional" in name
+        if ok:
+            mark = "✅"
+        elif optional:
+            mark = "–"   # optional layer that is simply off — not a failure
+        else:
+            mark = "❌"
             ok_all = False
-        _print("{} {:32s} {}".format(mark, name, detail))
+        _print("{} {:36s} {}".format(mark, name, detail))
     _print()
     _print("verdict: {}".format("ready" if ok_all else "issues found (see ❌ above)"))
     return 0 if ok_all else 1
@@ -238,7 +249,8 @@ def cmd_install_daemon(cfg: Config, args: argparse.Namespace) -> int:
 
 def cmd_queue(cfg: Config, args: argparse.Namespace) -> int:
     if cfg.papers_dir is None:
-        _print("vault dir not configured")
+        _print("Zotero-only mode — the analysis queue needs a vault. "
+               "Set [vault] dir in ~/.zotvault/config.toml to enable it.")
         return 1
     state = State(cfg.state_db)
     pdf_by_citekey = {}

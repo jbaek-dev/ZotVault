@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.4 — 2026-07-09 (Zotero-only mode: tiered requirements)
+
+ZotVault now runs with **just Zotero** — Obsidian and Ollama are layers, not
+prerequisites:
+
+- **Zotero-only mode**: with no `[vault] dir`, the search dashboard,
+  one-shot `add` (+OA PDF), arXiv alert inbox, proxy fallback and audit
+  trace all work; note/annotation/queue/suggestion machinery stays cleanly
+  off (the guards already existed — this release makes the mode a first-class
+  citizen).
+- `zotvault init` treats the vault question as optional ("blank =
+  Zotero-only mode") and explains what switches on when you add a vault
+  later.
+- `doctor` no longer fails on optional layers: vault and Ollama checks are
+  marked `(optional)` and render as "–" instead of "❌"; the verdict only
+  counts real problems.
+- Dashboard: `/api/status` reports `mode`; in Zotero-only mode the queue and
+  suggestion sections hide behind a one-line "set [vault] dir to unlock…"
+  hint, and the setup checklist no longer demands a vault.
+- README: requirements rewritten as a tier table (Zotero required → +markdown
+  folder → +Ollama). 124 tests.
+
 ## 0.9.3 — 2026-07-09 (Zotero <-> vault reconciliation)
 
 Closes the "deletions leave ghosts" gap found in real use (dashboard queue

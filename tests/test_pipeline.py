@@ -257,3 +257,34 @@ class TestReconciliation(TestPipelineE2E):
                                   attach_pdf=False)
         self.assertEqual(res[0]["status"], "added")
         state.close()
+
+
+class TestZoteroOnlyMode(unittest.TestCase):
+    """v0.9.4 — no vault configured: core loop must run, vault work stays off.
+
+    Borrows the E2E fixture without inheriting its tests (those assume a vault).
+    """
+
+    tearDown = TestPipelineE2E.tearDown
+    _run = TestPipelineE2E._run
+
+    def setUp(self):
+        TestPipelineE2E.setUp(self)
+        self.cfg.vault_dir = None
+
+    def test_cycle_runs_without_vault(self):
+        summary = self._run({"AAA10": "one2024", "BBB11": "two2024"})
+        self.assertEqual(summary.errors, 0)
+        state = State(self.cfg.state_db)
+        row = state.item_by_key("AAA10")
+        self.assertEqual(row["note_status"], "disabled")
+        self.assertEqual(row["citekey"], "one2024")   # 등록·중복감지는 정상 작동
+        state.close()
+
+    def test_doctor_verdict_ignores_vault(self):
+        from zotvault.health import checks
+        out = checks(self.cfg)
+        vault_rows = [c for c in out if c[0].startswith("vault")]
+        self.assertEqual(len(vault_rows), 1)
+        self.assertIn("(optional", vault_rows[0][0])
+        self.assertIn("Zotero-only", vault_rows[0][2])

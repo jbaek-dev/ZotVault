@@ -45,7 +45,9 @@ def checks(cfg: Config) -> List[Tuple[str, bool, str]]:
                        "citekey source — without it NOTHING syncs" if not probe_ok
                        else "citekey source"))
     if cfg.vault_dir is None:
-        checks.append(("vault dir", False, "not configured ([vault] dir)"))
+        checks.append(("vault (optional)", False,
+                       "not set — Zotero-only mode; set [vault] dir to unlock "
+                       "notes, highlight sync & the analysis queue"))
     else:
         checks.append(("vault dir", cfg.vault_dir.exists(), str(cfg.vault_dir)))
         papers = cfg.papers_dir
@@ -83,9 +85,9 @@ def checks(cfg: Config) -> List[Tuple[str, bool, str]]:
 
             with _ur.urlopen(cfg.ollama_url + "/api/tags", timeout=4) as r:
                 ok = r.status == 200
-            checks.append(("ollama (embeddings)", ok, cfg.ollama_url))
+            checks.append(("ollama (optional, embeddings)", ok, cfg.ollama_url))
         except Exception:
-            checks.append(("ollama (embeddings)", False,
+            checks.append(("ollama (optional, embeddings)", False,
                            cfg.ollama_url + " unreachable — related/synthesis suggestions off"))
     if cfg.proxy_enabled:
         tmpl_ok = "{url}" in cfg.proxy_url_template

@@ -1,7 +1,7 @@
 {
   "meta": {
     "app": "ZotVault",
-    "version": "0.9.3",
+    "version": "0.9.4",
     "purpose": "Local-first paper pipeline orchestrator between Zotero and Obsidian: detect -> note -> PDF (OA-first) -> AI-analysis queue -> vault index, plus search/add, dashboard, alerts, citation graph, related papers, synthesis suggestions.",
     "updated": "2026-07-08",
     "note": "Lightweight orientation map for humans and AI agents. The CODE is the source of truth; regenerate/adjust this file whenever module-level structure changes. Read AGENTS.md first for the change protocol.",
@@ -20,7 +20,8 @@
       "full_build": "scripts/build_app.sh (icon/launcher changes or fresh install; changes the signature -> user must re-grant Full Disk Access afterwards)",
       "code_edits": "scripts/apply_edits.sh (rsync repo -> ~/.zotvault/app + daemon restart; bundle untouched, FDA grant survives) — DEFAULT way to ship changes"
     },
-    "tests": "python3 -m unittest discover -s tests  (network-free; 47+)"
+    "tests": "python3 -m unittest discover -s tests  (network-free; 47+)",
+    "modes": "full (vault configured) | zotero-only ([vault] dir empty): search/add/alerts/proxy/trace active, note+annotation+queue+enrich machinery off via papers_dir-None guards; /api/status.mode, doctor '(optional)' convention, dashboard hides vault sections"
   },
   "config": {
     "path": "~/.zotvault/config.toml (override: $ZOTVAULT_CONFIG; env overrides ZOTVAULT_*)",

@@ -98,7 +98,14 @@
   <div id="search-results" style="margin-top:12px"></div>
 </section>
 
-<section>
+<div id="mode-hint" class="muted" style="display:none; margin:10px 2px; font-size:12.5px">
+  Zotero-only mode — search, one-shot add, OA PDFs and the arXiv inbox are active.
+  Using Obsidian (or any markdown folder)? Set <code>[vault] dir</code> in
+  <code>~/.zotvault/config.toml</code> to unlock auto notes, edit-safe highlight sync,
+  the AI-analysis queue and suggestion notes.
+</div>
+
+<section id="queue-sec">
   <h2>Analysis queue <span class="muted" id="queue-count"></span></h2>
   <div class="muted" style="margin-bottom:8px">
     Run <code>zotvault analyze</code> (set <code>[analysis] engine</code>) or use the "Analyze pending" button —
@@ -140,7 +147,13 @@ async function api(path, opts){
 
 async function refreshStatus(){
   const s = await api("/api/status");
-  $("version").textContent = "v"+s.version + (s.last_run_at ? " · last run "+s.last_run_at : "");
+  $("version").textContent = "v"+s.version + (s.mode==="zotero-only" ? " · Zotero-only mode" : "")
+    + (s.last_run_at ? " · last run "+s.last_run_at : "");
+  const zOnly = s.mode === "zotero-only";
+  const qs = $("queue-sec"), sg = $("sugg-sec"), hint = $("mode-hint");
+  if(qs) qs.style.display = zOnly ? "none" : "";
+  if(sg) sg.style.display = zOnly ? "none" : "";
+  if(hint) hint.style.display = zOnly ? "" : "none";
   const c = s.counts||{};
   $("stats").innerHTML = [
     ["items", c.items], ["analyzed", c.analyzed],
@@ -305,7 +318,7 @@ function toggleIgnored(ev){
   refreshAttention();
 }
 
-const CORE_CHECKS = ["config file","zotero data dir","zotero.sqlite","zotero running (connector ping)","vault dir"];
+const CORE_CHECKS = ["config file","zotero data dir","zotero.sqlite","zotero running (connector ping)"];
 async function refreshSetup(force){
   try{
     const s = await api("/api/status");
@@ -314,8 +327,8 @@ async function refreshSetup(force){
     const coreBad = checks.some(c => !c.ok && CORE_CHECKS.includes(c.name));
     if(!force && !coreBad && items > 0){ $("setup-sec").style.display = "none"; return; }
     $("setup").innerHTML = checks.map(c =>
-      `<div style="padding:3px 0">${c.ok?"✅":"❌"} <b>${esc(c.name)}</b> <span class="muted">${esc(c.detail)}</span></div>`).join("");
-    const bad = checks.filter(c => !c.ok).length;
+      `<div style="padding:3px 0">${c.ok?"✅":(c.optional?"–":"❌")} <b>${esc(c.name)}</b> <span class="muted">${esc(c.detail)}</span></div>`).join("");
+    const bad = checks.filter(c => !c.ok && !c.optional).length;
     $("setup-verdict").textContent = bad ? bad + " issue(s) — fix ❌ below" : "all good ✓";
     $("setup-sec").style.display = "block";
     if(force) $("setup-sec").scrollIntoView({behavior:"smooth"});

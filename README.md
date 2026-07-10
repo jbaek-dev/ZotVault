@@ -2,7 +2,7 @@
 
 **Local-first paper pipeline orchestrator between [Zotero](https://www.zotero.org/) and [Obsidian](https://obsidian.md/).**
 
-ZotVault watches your Zotero library and, for every new paper, automatically: creates an Obsidian note, secures a PDF (open-access first, politely rate-limited), puts the paper on an AI-analysis queue, and keeps your vault's index current. Around that core loop it adds one-shot DOI/arXiv adding, paper search, a local dashboard, arXiv keyword alerts, an in-library citation graph, embedding-based related-paper suggestions, and synthesis-cluster proposals.
+Works with just Zotero — add Obsidian and/or Ollama whenever you like and more switches on (see Requirements). ZotVault watches your Zotero library and, for every new paper, automatically: creates an Obsidian note, secures a PDF (open-access first, politely rate-limited), puts the paper on an AI-analysis queue, and keeps your vault's index current. Around that core loop it adds one-shot DOI/arXiv adding, paper search, a local dashboard, arXiv keyword alerts, an in-library citation graph, embedding-based related-paper suggestions, and synthesis-cluster proposals.
 
 Everything runs on your machine. No cloud accounts required, no API keys required for the core loop, **zero runtime dependencies** (Python ≥ 3.9 standard library only).
 
@@ -31,12 +31,17 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 - **Reconciliation, on your terms** — deletions are detected on both sides but never acted on silently: a vault note you deleted is marked *missing* (dashboard: Recreate / Ignore), a paper deleted from Zotero shows up as *vault-only* (Re-add / Dismiss), and dismissed papers live on a reviewable ignore list that also guards `add`.
 - **Auditable** — every automatic action lands in a SQLite trace (`zotvault trace`).
 
-## Requirements
+## Requirements — tiered
 
-- Python ≥ 3.9 (CLI is cross-platform; the double-click app + `install-daemon` autostart are macOS today)
-- Zotero desktop with **[Better BibTeX](https://retorque.re/zotero-better-bibtex/)** — **required**: it is ZotVault's citekey source. Without it, items can't be named and nothing syncs (ZotVault will mark them `blocked` and tell you).
-- An Obsidian vault (any folder). ZotVault writes per-paper notes under `<papers_subdir>/<citekey>/` — configure the paths; it does not impose a vault structure.
-- Optional: `pdftotext` (poppler) for full-text AI analysis, Ollama (related papers / local analysis), an institutional web proxy for licensed PDFs.
+ZotVault works with just Zotero; every further tool you already use unlocks a layer.
+
+| you have | you get |
+|---|---|
+| **Zotero + [Better BibTeX](https://retorque.re/zotero-better-bibtex/)** (required) | search across arXiv/S2/Crossref with in-library marks, one-shot `add` with OA PDF, arXiv alert inbox (approve → Zotero), proxy PDF fallback, dashboard, audit trace — *Zotero-only mode* |
+| **+ a markdown folder** (Obsidian vault or any directory — set `[vault] dir`) | automatic per-paper notes, edit-safe highlight/figure sync, AI-analysis queue, citation graph / related / synthesis notes, index & log upkeep |
+| **+ [Ollama](https://ollama.com)** (optional, local & free) | related-paper suggestions (embeddings), alert triage scoring, local analysis engine |
+
+Python ≥ 3.9; CLI is cross-platform (double-click app + launchd autostart are macOS today). Also optional: `pdftotext` (poppler) for full-text analysis, an institutional web proxy for licensed PDFs. Better BibTeX is genuinely required — it is the citekey source; without it items are marked `blocked`.
 
 ## Quick start
 

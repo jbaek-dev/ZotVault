@@ -77,3 +77,9 @@ if __name__ == "__main__":
         self.assertIn("name", data[0])
         self.assertIn("ok", data[0])
         self.assertIn("detail", data[0])
+
+    def test_status_reports_zotero_only_mode(self):
+        req = urllib.request.Request("http://127.0.0.1:{}/api/status".format(self.port))
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode())
+        self.assertEqual(data["mode"], "zotero-only")   # cfg.vault_dir=None in setUp

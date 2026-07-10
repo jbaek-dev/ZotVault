@@ -170,6 +170,7 @@ def make_handler(cfg: Config):
                 c = state.counts()
                 return {
                     "version": __version__,
+                    "mode": "zotero-only" if cfg.vault_dir is None else "full",
                     "counts": c,
                     "last_run_at": state.kv_get("last_run_at"),
                     "last_run": state.kv_get("last_run"),
@@ -249,7 +250,8 @@ def make_handler(cfg: Config):
 
         def _doctor(self) -> Any:
             from zotvault.health import checks
-            return [{"name": n, "ok": bool(ok), "detail": d} for n, ok, d in checks(cfg)]
+            return [{"name": n, "ok": bool(ok), "detail": d, "optional": "(optional" in n}
+                    for n, ok, d in checks(cfg)]
 
         def _queue(self) -> Any:
             from zotvault import analysis_queue
