@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.5 — 2026-07-10 (dashboard polish, from real use)
+
+- The Doctor button now **toggles** the setup checklist, and the card has a
+  Close button.
+- The **queue** and **alerts pending** stats are clickable — they jump to
+  (and briefly highlight) their sections, so a nonzero count is never a
+  dead end.
+
 ## 0.9.4 — 2026-07-09 (Zotero-only mode: tiered requirements)
 
 ZotVault now runs with **just Zotero** — Obsidian and Ollama are layers, not

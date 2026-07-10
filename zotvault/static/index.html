@@ -58,12 +58,13 @@
   <button class="ghost small" onclick="runOnce()" title="Scan Zotero now — create notes, fetch PDFs, update the queue and index">Run pipeline now</button>
   <button class="ghost small" onclick="runEnrich()" title="Rebuild Citation_Graph, Related_Suggestions and synthesis suggestions (Semantic Scholar + Ollama)">Refresh suggestions</button>
   <button class="ghost small" onclick="runAnalyze()" title="Run the configured [analysis] engine over queued papers">Analyze pending (AI)</button>
-  <button class="ghost small" onclick="refreshSetup(true)" title="Environment health check — config, Zotero, vault, Ollama">Doctor</button>
+  <button class="ghost small" onclick="toggleSetup()" title="Environment health check — config, Zotero, vault, Ollama">Doctor</button>
 </header>
 <main>
 
 <section id="setup-sec" style="display:none">
-  <h2>Setup checklist <span class="muted" id="setup-verdict"></span></h2>
+  <h2>Setup checklist <span class="muted" id="setup-verdict"></span>
+    <button class="ghost small" style="float:right" onclick="hideSetup()" title="Hide this card (the Doctor button reopens it)">Close</button></h2>
   <div id="setup" class="muted">checking…</div>
   <div class="muted" style="margin-top:8px">Fix ❌ items in <code>~/.zotvault/config.toml</code> (or re-run
     <code>zotvault init --force</code>), then hit <b>Doctor</b> to re-check ·
@@ -114,7 +115,7 @@
   <div id="queue"></div>
 </section>
 
-<section>
+<section id="alerts-sec">
   <h2>arXiv alerts inbox <span class="muted" id="alerts-count"></span></h2>
   <div id="alerts"></div>
 </section>
@@ -162,7 +163,11 @@ async function refreshStatus(){
     ["PDF missing", c.pdf_missing],
     ["downloads today", s.downloads_today+" / "+s.download_limit],
     ["alerts pending", s.pending_alerts]
-  ].map(([k,v])=>`<div class="stat"><b>${v??0}</b><span>${k}</span></div>`).join("");
+  ].map(([k,v])=>{
+    const target = k === "alerts pending" ? "alerts-sec" : (k === "queue" ? "queue-sec" : null);
+    const click = target ? ` style="cursor:pointer" title="click to jump" onclick="goTo('${target}')"` : "";
+    return `<div class="stat"${click}><b>${v??0}</b><span>${k}${target?" ↓":""}</span></div>`;
+  }).join("");
 }
 
 async function refreshQueue(){
@@ -316,6 +321,19 @@ function toggleIgnored(ev){
   const d = $("ignored");
   d.style.display = d.style.display==="none" ? "block" : "none";
   refreshAttention();
+}
+
+function hideSetup(){ $("setup-sec").style.display = "none"; }
+function toggleSetup(){
+  if($("setup-sec").style.display === "block") hideSetup();
+  else refreshSetup(true);
+}
+function goTo(id){
+  const el = $(id);
+  if(!el || el.style.display === "none") return;
+  el.scrollIntoView({behavior:"smooth"});
+  el.style.transition = "outline .2s"; el.style.outline = "2px solid var(--acc)";
+  setTimeout(()=>{ el.style.outline = "none"; }, 1200);
 }
 
 const CORE_CHECKS = ["config file","zotero data dir","zotero.sqlite","zotero running (connector ping)"];
