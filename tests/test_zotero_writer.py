@@ -182,3 +182,35 @@ class TestOaAttachment(unittest.TestCase):
     def test_no_email_skips_lookup(self):
         results, saved = self._run_add(["https://oa.example/x.pdf"], email="")
         self.assertNotIn("attachments", saved["items"][0])
+
+
+class TestDelatex(unittest.TestCase):
+    """arXiv titles carry raw TeX (v0.9.6 user-reported)."""
+
+    def test_subscripts_and_superscripts(self):
+        from zotvault.zotero_writer import delatex
+        self.assertEqual(delatex("monolayer WSe$_2$"), "monolayer WSe₂")
+        self.assertEqual(delatex("MoS$_2$/WSe$_{2}$"), "MoS₂/WSe₂")
+        self.assertEqual(delatex("10$^{-9}$ s"), "10⁻⁹ s")
+
+    def test_greek_and_symbols(self):
+        from zotvault.zotero_writer import delatex
+        self.assertEqual(delatex("$\\Gamma$ point"), "Γ point")
+        self.assertEqual(delatex("$\\alpha$-RuCl$_3$"), "α-RuCl₃")
+        self.assertEqual(delatex("5$\\times$10$^3$"), "5×10³")
+
+    def test_plain_text_untouched(self):
+        from zotvault.zotero_writer import delatex
+        self.assertEqual(delatex("snake_case and x^y outside math"),
+                         "snake_case and x^y outside math")
+        self.assertEqual(delatex("plain title"), "plain title")
+
+    def test_unmappable_subscript_degrades_gracefully(self):
+        from zotvault.zotero_writer import delatex
+        self.assertEqual(delatex("T$_c$ enhancement"), "Tc enhancement")
+
+    def test_arxiv_atom_titles_are_delatexed(self):
+        feed = ARXIV_ATOM.replace("Valley  dynamics in\n      Janus TMDCs",
+                                  "Valley dynamics in WSe$_2$")
+        entries = parse_arxiv_atom(feed)
+        self.assertEqual(entries[0]["title"], "Valley dynamics in WSe₂")

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.6 — 2026-07-10 (readable arXiv titles)
+
+- arXiv titles/abstracts arrive with raw TeX ("monolayer WSe$_2$",
+  "$\\Gamma$ point", "10$^{-9}$ s"). They are now converted to readable
+  unicode (WSe₂, Γ, 10⁻⁹) at parse time — fixing the alert inbox, search
+  results, AND the titles saved into Zotero on approve/add. Sub/superscripts
+  are only touched inside $…$ (a bare snake_case survives); unmappable
+  scripts degrade to plain text (T$_c$ → Tc). 129 tests.
+
 ## 0.9.5 — 2026-07-10 (dashboard polish, from real use)
 
 - The Doctor button now **toggles** the setup checklist, and the card has a

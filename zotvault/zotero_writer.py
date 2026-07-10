@@ -125,6 +125,67 @@ def _strip_jats(text: str) -> str:
     return strip_markup(text, sep=" ")
 
 
+# --- LaTeX-in-titles (arXiv) -> readable unicode (v0.9.6) -------------------
+# arXiv titles/abstracts carry raw TeX: "monolayer WSe$_2$", "$\Gamma$ point",
+# "10$^{-9}$ s". Rendered as-is they look broken in the dashboard AND would be
+# saved verbatim into Zotero on approve/add.
+
+_SUB = str.maketrans("0123456789+-=()x", "\u2080\u2081\u2082\u2083\u2084\u2085\u2086\u2087\u2088\u2089\u208a\u208b\u208c\u208d\u208e\u2093")
+_SUP = str.maketrans("0123456789+-=()ni", "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079\u207a\u207b\u207c\u207d\u207e\u207f\u2071")
+_GREEK = {
+    "alpha": "α", "beta": "β", "gamma": "γ", "delta": "δ", "epsilon": "ε",
+    "varepsilon": "ε", "zeta": "ζ", "eta": "η", "theta": "θ", "iota": "ι",
+    "kappa": "κ", "lambda": "λ", "mu": "μ", "nu": "ν", "xi": "ξ", "pi": "π",
+    "rho": "ρ", "sigma": "σ", "tau": "τ", "upsilon": "υ", "phi": "φ",
+    "varphi": "φ", "chi": "χ", "psi": "ψ", "omega": "ω",
+    "Gamma": "Γ", "Delta": "Δ", "Theta": "Θ", "Lambda": "Λ", "Xi": "Ξ",
+    "Pi": "Π", "Sigma": "Σ", "Phi": "Φ", "Psi": "Ψ", "Omega": "Ω",
+}
+_TEXSYM = {"times": "×", "cdot": "·", "pm": "±", "mp": "∓", "sim": "~",
+           "approx": "≈", "to": "→", "rightarrow": "→", "leftarrow": "←",
+           "prime": "′", "degree": "°", "circ": "°", "infty": "∞",
+           "AA": "Å", "angstrom": "Å", "hbar": "ℏ", "ell": "ℓ"}
+
+
+def _tex_names(text: str) -> str:
+    for name, ch in _GREEK.items():
+        text = re.sub(r"\\" + name + r"(?![A-Za-z])", ch, text)
+    for name, ch in _TEXSYM.items():
+        text = re.sub(r"\\" + name + r"(?![A-Za-z])", ch, text)
+    return text
+
+
+def _convert_math(seg: str) -> str:
+    seg = re.sub(r"\\(?:mathrm|mathbf|mathit|textrm|textbf|textit|text|rm|bf|it)\s*\{([^{}]*)\}", r"\1", seg)
+    seg = _tex_names(seg)
+
+    def script(m: "re.Match", table: Dict[int, str]) -> str:
+        body = m.group(1) if m.group(1) is not None else m.group(2)
+        conv = body.translate(table)
+        return conv if conv != body or body == "" else body  # best effort
+
+    seg = re.sub(r"_\{([^{}]*)\}|_(\S)", lambda m: script(m, _SUB), seg)
+    seg = re.sub(r"\^\{([^{}]*)\}|\^(\S)", lambda m: script(m, _SUP), seg)
+    seg = seg.replace("\\,", " ").replace("\\;", " ").replace("\\!", "")
+    seg = seg.replace("{", "").replace("}", "")
+    return seg
+
+
+def delatex(text: str) -> str:
+    r"""Best-effort LaTeX -> readable unicode for titles/abstracts.
+
+    Only $...$ segments get sub/superscript treatment (a bare "_" outside math
+    must survive untouched); Greek/symbol commands are mapped everywhere; the
+    escape forms \%, \&, \_ are unescaped. Unknown commands lose only the
+    backslash — degrading to a readable word beats dropping content.
+    """
+    t = re.sub(r"\$([^$]*)\$", lambda m: _convert_math(m.group(1)), text or "")
+    t = _tex_names(t)
+    t = t.replace("\\%", "%").replace("\\&", "&").replace("\\_", "_")
+    t = re.sub(r"\\([A-Za-z]+)", r"\1", t)
+    return " ".join(t.split())
+
+
 def parse_crossref(msg: Dict[str, Any]) -> Dict[str, Any]:
     itype = _CROSSREF_TYPE_MAP.get(msg.get("type", ""), "journalArticle")
     titles = msg.get("title") or []
@@ -209,8 +270,8 @@ def parse_arxiv_atom(xml_text: str) -> List[Dict[str, Any]]:
                 pdf_url = link.get("href", "")
         out.append({
             "arxiv_id": raw_id,
-            "title": " ".join((e.findtext(_ATOM + "title") or "").split()),
-            "summary": " ".join((e.findtext(_ATOM + "summary") or "").split()),
+            "title": delatex(e.findtext(_ATOM + "title") or ""),
+            "summary": delatex(e.findtext(_ATOM + "summary") or ""),
             "published": (e.findtext(_ATOM + "published") or "")[:10],
             "authors": [a.findtext(_ATOM + "name") or "" for a in e.findall(_ATOM + "author")],
             "doi": e.findtext(_ARXIV_NS + "doi") or "",
