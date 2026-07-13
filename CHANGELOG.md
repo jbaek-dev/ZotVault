@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.7 — 2026-07-12 (search reliability + collected-picks cart)
 
 - Search & Add dashboard: each result now has an ↗ link to its actual page
   (DOI resolver, or the arXiv abstract page when there's no DOI) so you can
