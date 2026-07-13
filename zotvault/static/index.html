@@ -95,7 +95,9 @@
     </select>
     <button onclick="doSearch()">Search</button>
     <button class="ghost" onclick="addSelected()" id="addBtn" disabled>Add selected to Zotero</button>
+    <button class="ghost" onclick="copySelected()" id="copyBtn" disabled title="Copy DOIs (or arXiv:id when no DOI) of everything selected, one per line">Copy DOIs</button>
   </div>
+  <div id="cart-box" style="display:none; margin-top:10px"></div>
   <div id="search-results" style="margin-top:12px"></div>
 </section>
 
@@ -136,6 +138,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => (s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let lastResults = [];
+let cart = new Map(); // best_identifier -> SearchResult, survives across searches until add/clear
 
 function toast(msg, ms=3500){ const t=$("toast"); t.textContent=msg; t.style.display="block";
   clearTimeout(t._h); t._h=setTimeout(()=>t.style.display="none", ms); }
@@ -182,6 +185,13 @@ async function refreshQueue(){
            :`<span class="pill ok">${esc(e.pdf_status)}</span>`}</td></tr>`).join("") + "</table>" : "";
 }
 
+function landingUrl(r){
+  // best page to read the actual paper on, not just the PDF
+  if(r.doi) return "https://doi.org/" + r.doi;
+  if(r.arxiv_id) return "https://arxiv.org/abs/" + r.arxiv_id;
+  return r.pdf_url || "";
+}
+
 async function doSearch(){
   const q = $("q").value.trim(); if(!q) return;
   $("search-results").innerHTML = '<span class="muted">searching…</span>';
@@ -189,39 +199,81 @@ async function doSearch(){
   if (res.error){ $("search-results").innerHTML = `<span class="pill err">${esc(res.error)}</span>`; return; }
   lastResults = res;
   $("search-results").innerHTML = res.length ? "<table><tr><th></th><th>paper</th><th>year</th><th>cites</th><th>status</th></tr>" +
-    res.map((r,i)=>`<tr class="res" onclick="this.classList.toggle('open')">
+    res.map((r,i)=>{
+      const lurl = landingUrl(r);
+      const inCart = r.best_identifier && cart.has(r.best_identifier);
+      return `<tr class="res" onclick="this.classList.toggle('open')">
       <td onclick="event.stopPropagation()"><input type="checkbox" data-i="${i}"
-          ${r.in_library||!r.best_identifier?"disabled":""} onchange="updateAddBtn()"></td>
-      <td class="title-cell"><b>${esc(r.title)}</b>
+          ${r.in_library||!r.best_identifier?"disabled":""}${inCart?" checked":""} onchange="toggleCart(this, ${i})"></td>
+      <td class="title-cell"><b>${esc(r.title)}</b>${lurl?` <a href="${esc(lurl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" title="open original page">↗</a>`:""}
         <div class="muted">${esc(r.authors)} · ${esc(r.venue)}</div>
         <div class="abstract">${esc(r.abstract)}</div></td>
       <td>${esc(r.year)}</td><td>${r.citations??""}</td>
       <td>${r.in_library?`<span class="pill ok">in library: ${esc(r.in_library)}</span>`
             : r.best_identifier?`<span class="pill">${esc(r.best_identifier)}</span>`
-            : '<span class="pill warn">no id</span>'}</td></tr>`).join("") + "</table>"
+            : '<span class="pill warn">no id</span>'}</td></tr>`;
+    }).join("") + "</table>"
     : '<span class="muted">no results</span>';
-  updateAddBtn();
+  renderCart();
 }
 
-function selectedIds(){
-  return [...document.querySelectorAll('#search-results input[type=checkbox]:checked')]
-    .map(cb => { const r = lastResults[+cb.dataset.i];
-                 return r.doi || (r.arxiv_id ? "arXiv:"+r.arxiv_id : null); })
-    .filter(Boolean);
+// -- selection cart: survives across searches so you can collect picks
+// across several keyword queries, then add/copy them all at once ---------
+function toggleCart(cb, i){
+  const r = lastResults[i];
+  if(!r || !r.best_identifier) return;
+  if(cb.checked) cart.set(r.best_identifier, r); else cart.delete(r.best_identifier);
+  renderCart();
 }
-function updateAddBtn(){ $("addBtn").disabled = selectedIds().length === 0; }
+
+function renderCart(){
+  const items = [...cart.values()];
+  $("addBtn").disabled = items.length === 0;
+  $("copyBtn").disabled = items.length === 0;
+  const box = $("cart-box");
+  if(!items.length){ box.style.display = "none"; box.innerHTML = ""; return; }
+  box.style.display = "block";
+  box.innerHTML = `<div class="muted" style="margin-bottom:6px">selected for add (${items.length}) — collected across searches</div>` +
+    items.map(r => `<span class="pill" style="margin:2px 4px 2px 0; cursor:pointer" title="click to remove"
+        onclick="removeFromCart('${encodeURIComponent(r.best_identifier)}')">${esc((r.title||"(untitled)").slice(0,60))}${(r.title||"").length>60?"…":""} ✕</span>`).join("") +
+    ` <button class="ghost small" onclick="clearCart()">Clear all</button>`;
+}
+
+function syncCheckboxes(){
+  document.querySelectorAll('#search-results input[type=checkbox]').forEach(cb=>{
+    const r = lastResults[+cb.dataset.i];
+    cb.checked = !!(r && r.best_identifier && cart.has(r.best_identifier));
+  });
+}
+
+function removeFromCart(encId){ cart.delete(decodeURIComponent(encId)); renderCart(); syncCheckboxes(); }
+function clearCart(){ cart.clear(); renderCart(); syncCheckboxes(); }
+
+async function copySelected(){
+  const ids = [...cart.values()].map(r=>r.best_identifier).filter(Boolean);
+  if(!ids.length) return;
+  try{
+    await navigator.clipboard.writeText(ids.join("\n"));
+    toast(`📋 copied ${ids.length} identifier(s)`);
+  }catch(e){ toast("❌ clipboard write failed — copy manually"); }
+}
 
 async function addSelected(){
-  const ids = selectedIds(); if(!ids.length) return;
+  const items = [...cart.values()];
+  const ids = items.map(r=>r.best_identifier).filter(Boolean);
+  if(!ids.length) return;
   $("addBtn").disabled = true;
   const res = await api("/api/add", {method:"POST", headers:{"Content-Type":"application/json"},
                                      body: JSON.stringify({identifiers: ids})});
-  if (res.error){ toast("❌ " + res.error); return; }
+  if (res.error){ toast("❌ " + res.error); $("addBtn").disabled = false; return; }
   const added = res.filter(r=>r.status==="added").length;
   const dup = res.filter(r=>r.status==="duplicate").length;
   const err = res.filter(r=>r.status==="error");
+  // clear resolved picks (added/duplicate) from the cart; keep errors so they're visible to retry
+  res.forEach((r,i) => { if(r.status !== "error") cart.delete(ids[i]); });
   toast(`✅ added ${added}` + (dup?` · duplicates ${dup}`:"") +
         (err.length?` · errors ${err.length}: ${err[0].message}`:""), 6000);
+  renderCart();
   doSearch(); refreshStatus();
 }
 

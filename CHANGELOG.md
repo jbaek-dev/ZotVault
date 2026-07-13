@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Search & Add dashboard: each result now has an ↗ link to its actual page
+  (DOI resolver, or the arXiv abstract page when there's no DOI) so you can
+  read before adding. A "Copy DOIs" button copies the DOI (or `arXiv:id`
+  when there's no DOI) of everything selected, one per line, to the
+  clipboard. Selections now survive across searches — checking a paper adds
+  it to a small collected-picks strip above the results that stays put
+  while you search other keywords, so you can gather picks from several
+  queries and add them to Zotero in one batch; click a pick's ✕ or "Clear
+  all" to drop it.
 - Fixed dashboard search intermittently failing with "The read operation
   timed out" on arXiv queries. `export.arxiv.org` was being called over
   plain `http://`, which always 301-redirects to `https://` — under
