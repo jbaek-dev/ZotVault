@@ -21,7 +21,7 @@ from zotvault.zotero_writer import parse_arxiv_atom
 
 log = logging.getLogger("zotvault.alerts")
 
-_API = "http://export.arxiv.org/api/query?search_query={q}&sortBy=submittedDate&sortOrder=descending&max_results={n}"
+_API = "https://export.arxiv.org/api/query?search_query={q}&sortBy=submittedDate&sortOrder=descending&max_results={n}"
 
 
 def _get(url: str, timeout: int = 20) -> str:

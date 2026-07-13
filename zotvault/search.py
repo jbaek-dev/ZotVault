@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -54,6 +56,36 @@ def _get(url: str, timeout: int = 20, headers: Optional[Dict[str, str]] = None) 
         return resp.read()
 
 
+def _get_polite(url: str, label: str, timeout: int = 20,
+                 headers: Optional[Dict[str, str]] = None,
+                 retry_delay: float = 3.0) -> bytes:
+    """_get() with one retry after a short delay on connect/read timeouts.
+
+    Free-tier search APIs (arXiv, S2) occasionally stall under back-to-back
+    requests instead of returning a clean error; one retry after a courtesy
+    delay (arXiv's own guidance — see AGENTS.md network etiquette) resolves
+    most of these. A lasting failure gets a message a human can act on
+    instead of a raw socket error. HTTPError (e.g. 429) is never retried
+    here — callers handle it directly (see search_semantic_scholar).
+    """
+    try:
+        return _get(url, timeout, headers)
+    except urllib.error.HTTPError:
+        raise
+    except (socket.timeout, urllib.error.URLError):
+        time.sleep(retry_delay)
+        try:
+            return _get(url, timeout, headers)
+        except urllib.error.HTTPError:
+            raise
+        except (socket.timeout, urllib.error.URLError):
+            raise RuntimeError(
+                "{} took too long to respond (twice in a row) — it may be "
+                "rate-limiting or briefly down; wait a bit and retry, or "
+                "try a different source.".format(label)
+            ) from None
+
+
 # ---------------------------------------------------------------------------
 # sources
 # ---------------------------------------------------------------------------
@@ -62,10 +94,10 @@ def search_arxiv(query: str, max_results: int = 20, timeout: int = 20) -> List[S
     # AND-join individual terms (an exact-phrase query over 3+ words rarely matches)
     terms = [t for t in re.split(r"\s+", query.strip()) if t]
     q = urllib.parse.quote(" AND ".join('all:"{}"'.format(t.replace('"', "")) for t in terms))
-    xml_text = _get(
-        "http://export.arxiv.org/api/query?search_query={}&max_results={}&sortBy=relevance".format(
+    xml_text = _get_polite(
+        "https://export.arxiv.org/api/query?search_query={}&max_results={}&sortBy=relevance".format(
             q, max_results),
-        timeout,
+        "arXiv", timeout,
     ).decode("utf-8")
     out = []
     for e in parse_arxiv_atom(xml_text):
@@ -111,7 +143,7 @@ def search_semantic_scholar(query: str, max_results: int = 20, api_key: str = ""
            ).format(urllib.parse.quote(query), max_results)
     headers = {"x-api-key": api_key} if api_key else None
     try:
-        data = json.loads(_get(url, timeout, headers).decode("utf-8"))
+        data = json.loads(_get_polite(url, "Semantic Scholar", timeout, headers).decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 429:
             raise RuntimeError(
@@ -125,7 +157,7 @@ def search_semantic_scholar(query: str, max_results: int = 20, api_key: str = ""
 def search_crossref(query: str, max_results: int = 20, timeout: int = 20) -> List[SearchResult]:
     url = "https://api.crossref.org/works?query={}&rows={}".format(
         urllib.parse.quote(query), max_results)
-    data = json.loads(_get(url, timeout).decode("utf-8"))
+    data = json.loads(_get_polite(url, "Crossref", timeout).decode("utf-8"))
     out = []
     for m in (data.get("message") or {}).get("items") or []:
         titles = m.get("title") or []

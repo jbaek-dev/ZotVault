@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Fixed dashboard search intermittently failing with "The read operation
+  timed out" on arXiv queries. `export.arxiv.org` was being called over
+  plain `http://`, which always 301-redirects to `https://` — under
+  back-to-back requests that extra hop would occasionally stall past the
+  20s timeout instead of erroring cleanly. Search (and the arXiv-id
+  resolver used by `add`/alerts) now calls `https://` directly, and search
+  retries once after a short delay on a stalled connection before
+  surfacing a plain-language error instead of a raw socket message. 132 tests.
+
 ## 0.9.6 — 2026-07-10 (readable arXiv titles)
 
 - arXiv titles/abstracts arrive with raw TeX ("monolayer WSe$_2$",

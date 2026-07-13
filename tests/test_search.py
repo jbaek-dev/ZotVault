@@ -1,9 +1,11 @@
+import socket
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
-from zotvault.search import SearchResult, lookup_identifier, mark_in_library, parse_s2
+from zotvault.search import SearchResult, _get_polite, lookup_identifier, mark_in_library, parse_s2
 from zotvault.state import State
 
 S2_DATA = {
@@ -101,6 +103,38 @@ class TestLookupIdentifier(unittest.TestCase):
         self.assertEqual(rs[0].arxiv_id, "2405.01234")
         self.assertEqual(rs[0].source, "arxiv-lookup")
         self.assertTrue(rs[0].pdf_url.endswith("2405.01234"))
+
+
+class TestGetPolite(unittest.TestCase):
+    """arXiv/S2/Crossref occasionally stall instead of erroring cleanly —
+    _get_polite retries once after a delay and only then gives up with a
+    message a human can act on. See AGENTS.md network etiquette."""
+
+    def test_retries_once_on_timeout_then_succeeds(self):
+        with mock.patch("zotvault.search._get", side_effect=[socket.timeout("timed out"), b"ok"]) as m, \
+             mock.patch("zotvault.search.time.sleep") as sleep_m:
+            result = _get_polite("http://x", "TestSource", retry_delay=3.0)
+        self.assertEqual(result, b"ok")
+        self.assertEqual(m.call_count, 2)
+        sleep_m.assert_called_once_with(3.0)
+
+    def test_raises_friendly_message_after_two_timeouts(self):
+        with mock.patch("zotvault.search._get",
+                         side_effect=[socket.timeout("timed out"), socket.timeout("timed out")]), \
+             mock.patch("zotvault.search.time.sleep"):
+            with self.assertRaises(RuntimeError) as cm:
+                _get_polite("http://x", "TestSource", retry_delay=0.01)
+        self.assertIn("TestSource", str(cm.exception))
+        self.assertIn("twice in a row", str(cm.exception))
+
+    def test_http_error_is_not_retried(self):
+        err = urllib.error.HTTPError("http://x", 429, "rate limited", {}, None)
+        with mock.patch("zotvault.search._get", side_effect=err) as m, \
+             mock.patch("zotvault.search.time.sleep") as sleep_m:
+            with self.assertRaises(urllib.error.HTTPError):
+                _get_polite("http://x", "TestSource")
+        self.assertEqual(m.call_count, 1)
+        sleep_m.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -306,7 +306,7 @@ def entry_to_preprint_item(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 def resolve_arxiv(arxiv_id: str, timeout: int = 20) -> Dict[str, Any]:
     xml_text = _get(
-        "http://export.arxiv.org/api/query?id_list=" + urllib.parse.quote(arxiv_id),
+        "https://export.arxiv.org/api/query?id_list=" + urllib.parse.quote(arxiv_id),
         timeout,
     ).decode("utf-8")
     entries = parse_arxiv_atom(xml_text)
