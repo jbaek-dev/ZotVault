@@ -189,7 +189,9 @@ function landingUrl(r){
   // best page to read the actual paper on, not just the PDF
   if(r.doi) return "https://doi.org/" + r.doi;
   if(r.arxiv_id) return "https://arxiv.org/abs/" + r.arxiv_id;
-  return r.pdf_url || "";
+  // pdf_url comes from an external API response — only allow http(s), never
+  // let a javascript:/data: scheme reach an href
+  return /^https?:\/\//i.test(r.pdf_url || "") ? r.pdf_url : "";
 }
 
 async function doSearch(){
@@ -235,7 +237,7 @@ function renderCart(){
   box.style.display = "block";
   box.innerHTML = `<div class="muted" style="margin-bottom:6px">selected for add (${items.length}) — collected across searches</div>` +
     items.map(r => `<span class="pill" style="margin:2px 4px 2px 0; cursor:pointer" title="click to remove"
-        onclick="removeFromCart('${encodeURIComponent(r.best_identifier)}')">${esc((r.title||"(untitled)").slice(0,60))}${(r.title||"").length>60?"…":""} ✕</span>`).join("") +
+        onclick="removeFromCart('${encodeURIComponent(r.best_identifier).replace(/'/g,"%27")}')">${esc((r.title||"(untitled)").slice(0,60))}${(r.title||"").length>60?"…":""} ✕</span>`).join("") +
     ` <button class="ghost small" onclick="clearCart()">Clear all</button>`;
 }
 
