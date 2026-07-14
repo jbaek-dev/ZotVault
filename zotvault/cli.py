@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import re
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -81,6 +83,24 @@ def _toml_str(value: str) -> str:
     return value.replace("\\", "/").replace('"', '\\"')
 
 
+def _clean_pasted_path(raw: str) -> str:
+    """Undo shell-style backslash-escaping before a pasted path reaches
+    Path()/_toml_str(). Terminal tab-completion (or dragging a folder into a
+    POSIX shell) inserts a backslash before spaces/tildes/etc. so the shell
+    treats them literally — e.g. ``Mobile\\ Documents``, ``iCloud\\~md``.
+    ``input()`` is not a shell, so those backslashes are never interpreted;
+    left alone they survive into the stored value, and _toml_str()'s
+    (intentional, Windows-path-normalizing) backslash -> forward-slash
+    conversion then turns them into a similar-looking but nonexistent path
+    (``Mobile/ Documents``, ``iCloud/~md``) — see the v0.9.8 vault-path bug.
+    Windows paths use backslash as the real separator, so this is a no-op
+    there.
+    """
+    if os.name == "nt" or "\\" not in raw:
+        return raw
+    return re.sub(r"\\(.)", r"\1", raw)
+
+
 def apply_init_answers(text: str, vault: str = "", papers: str = "",
                        email: str = "", lang: str = "") -> str:
     """Inject setup-wizard answers into the config template (pure, testable)."""
@@ -110,14 +130,15 @@ def cmd_init(args: argparse.Namespace) -> int:
         _print("ZotVault setup — Enter accepts the [default], blank skips a question.")
         _print()
         while True:
-            vault = _ask("Obsidian/markdown vault folder (blank = Zotero-only mode)")
+            vault = _clean_pasted_path(
+                _ask("Obsidian/markdown vault folder (blank = Zotero-only mode)"))
             if not vault or Path(vault).expanduser().is_dir():
                 break
             if _ask("    '{}' does not exist — use it anyway? (y/N)".format(vault),
                     "n").lower().startswith("y"):
                 break
-        papers = _ask("Subfolder for paper notes (inside the vault)",
-                      "30_Resources/Papers/zotero") if vault else ""
+        papers = _clean_pasted_path(_ask("Subfolder for paper notes (inside the vault)",
+                      "30_Resources/Papers/zotero")) if vault else ""
         email = _ask("Email for Unpaywall open-access PDF lookup (blank = disabled)")
         lang = _ask("Vault log language — en or ko", "en").lower()
         text = apply_init_answers(text, vault, papers, email, lang)

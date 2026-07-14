@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -10,6 +11,20 @@ from typing import List, Tuple
 from zotvault.config import Config
 from zotvault.state import State
 from zotvault.zotero_reader import ZoteroReader
+
+
+def _decorrupted_vault_hint(path_str: str) -> str:
+    """Best-effort detection of the pre-v0.9.8 `zotvault init` bug: a pasted,
+    shell-escaped path (space/tilde preceded by ``\\``) had its backslashes
+    folded into ``/`` by `_toml_str()`, producing a similar-looking but
+    nonexistent path (``Mobile/ Documents``, ``iCloud/~md``). If undoing
+    that folding yields a directory that actually exists, return it as a
+    fix suggestion; otherwise return "" (don't guess at unrelated typos).
+    """
+    candidate = re.sub(r"/(?= )", "", path_str).replace("/~", "~")
+    if candidate != path_str and Path(candidate).expanduser().is_dir():
+        return candidate
+    return ""
 
 
 def checks(cfg: Config) -> List[Tuple[str, bool, str]]:
@@ -49,7 +64,13 @@ def checks(cfg: Config) -> List[Tuple[str, bool, str]]:
                        "not set — Zotero-only mode; set [vault] dir to unlock "
                        "notes, highlight sync & the analysis queue"))
     else:
-        checks.append(("vault dir", cfg.vault_dir.exists(), str(cfg.vault_dir)))
+        vault_exists = cfg.vault_dir.exists()
+        vault_detail = str(cfg.vault_dir)
+        if not vault_exists:
+            hint = _decorrupted_vault_hint(vault_detail)
+            if hint:
+                vault_detail += " — looks like a pasted path got backslash-corrupted; try: " + hint
+        checks.append(("vault dir", vault_exists, vault_detail))
         papers = cfg.papers_dir
         checks.append(("papers dir", papers is not None and papers.exists(), str(papers)))
         checks.append(

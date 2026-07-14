@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Fixed `zotvault init` corrupting the vault path when it's pasted from a
+  shell-escaped source (terminal tab-completion, or dragging a folder into
+  a POSIX terminal escapes spaces/tildes as `Mobile\ Documents`,
+  `iCloud\~md\~obsidian`). `input()` isn't a shell, so those backslashes
+  were never interpreted — they survived into the stored value, and the
+  config writer's Windows-path-normalizing backslash→slash conversion then
+  turned them into a similar-looking but nonexistent path (`Mobile/
+  Documents`, `iCloud/~md`), silently failing every vault-dependent
+  `doctor` check. The vault-folder prompt now strips shell-style
+  backslash-escapes before validating/storing the path (no-op on Windows,
+  where backslash is the real separator); `doctor` also now recognizes the
+  old corruption pattern in an existing config and suggests the fix. 138 tests.
+
 ## 0.9.7 — 2026-07-12 (search reliability + collected-picks cart)
 
 - Search & Add dashboard: each result now has an ↗ link to its actual page
