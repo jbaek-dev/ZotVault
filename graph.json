@@ -106,7 +106,7 @@
     },
     {
       "file": "zotvault/zotero_writer.py",
-      "purpose": "One-shot add: DOI/arXiv -> Crossref/DataCite/arXiv resolvers -> connector saveItems. v0.9.1: strip_markup() sanitizes MathML/JATS in titles (empty-sep joins math text nodes, drops mml:annotation, unescapes entities; space-sep for abstracts); DOI adds do one Unpaywall lookup and put the OA PDF in the payload's attachments so ZOTERO downloads it itself (storage/ invariant intact; proxy PDFs stay on the daemon path)",
+      "purpose": "One-shot add: DOI/arXiv -> Crossref/DataCite/arXiv resolvers -> connector saveItems. v0.9.1: strip_markup() sanitizes MathML/JATS in titles (empty-sep joins math text nodes, drops mml:annotation, unescapes entities; space-sep for abstracts). v0.9.8: no PDF is ever attached on the Zotero side -- confirmed via live Debug Output Logging that Zotero's local connector API runs ItemSaver in ATTACHMENT_MODE_IGNORE for connector-server-driven (non-browser) saveItems calls, a hardcoded behavior independent of payload shape or the downloadAssociatedFiles pref. PDFs still land in ZotVault's own cache via pdf_resolver.py (storage/ invariant intact); getting a PDF into Zotero itself is a manual step (Zotero's native \"Find Available PDF\") or the deferred Web API path below",
       "key": [
         "classify_identifier",
         "resolve_doi",
@@ -116,7 +116,6 @@
         "add_identifiers"
       ],
       "key_symbols": [
-        "_oa_pdf_url",
         "add_identifiers",
         "classify_identifier",
         "parse_crossref",
@@ -391,6 +390,10 @@
     {
       "name": "search source",
       "how": "add search_<source>() in search.py returning SearchResult, wire into search()"
+    },
+    {
+      "name": "Zotero-side PDF attach via Web API (BACKLOG, gated)",
+      "how": "local connector saveItems cannot attach PDFs (ATTACHMENT_MODE_IGNORE, confirmed v0.9.8 via Debug Output Logging -- not a payload or pref issue). Zotero's Web API item-template for linkMode=linked_file (GET https://api.zotero.org/items/new?itemType=attachment&linkMode=linked_file) has a bare path field with no upload-shaped fields, so this route isn't dead on arrival, but do NOT build it until this pre-check passes: create one attachment item via the Web API with path=~/.zotvault/pdfs/<citekey>.pdf pointing at a real cached PDF, sync that library in desktop Zotero, and confirm the attachment actually resolves and opens there. If it doesn't resolve post-sync, the path is dead and should stay out of scope. Adds an API-key/sync-enabled requirement (trust footprint), so keep this opt-in and separate from the local-only default path"
     },
     {
       "name": "analysis engine",

@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Removed the false claim (code and docs) that one-shot `add` attaches an
+  OA PDF to the Zotero item. Live testing with Zotero's Debug Output
+  Logging confirmed Zotero's local connector API runs its ItemSaver in
+  `ATTACHMENT_MODE_IGNORE` for connector-server-driven (non-browser)
+  `saveItems` calls — a hardcoded behavior, not a `downloadAssociatedFiles`
+  preference or payload-format issue (three attachment shapes tested, all
+  discarded identically). `zotvault add` previously reported
+  "Zotero is downloading the OA PDF" with zero verification that any
+  attachment was ever created; it now reports plainly that the item was
+  saved, with no PDF claim. The `--no-pdf` CLI flag is removed (it no
+  longer had any effect to toggle). PDFs still land in ZotVault's own
+  cache for the AI-analysis pipeline; to get a PDF inside Zotero itself,
+  use Zotero's native "Find Available PDF". A Web API-based path to
+  actually attach PDFs in Zotero is tracked as a gated backlog item (see
+  `graph.json` extension_points) — deferred pending an empirical
+  pre-check, since it would add an API-key/sync-enabled trust footprint
+  the local-only path doesn't have. 138 tests.
 - Fixed `zotvault init` corrupting the vault path when it's pasted from a
   shell-escaped source (terminal tab-completion, or dragging a folder into
   a POSIX terminal escapes spaces/tildes as `Mobile\ Documents`,

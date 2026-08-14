@@ -6,7 +6,7 @@
 
 전부 내 컴퓨터 안에서. 코어 루프에 API키 불필요, 런타임 의존성 0 (Python ≥ 3.9 표준 라이브러리만).
 
-**요구조건은 계층형**: Zotero(+Better BibTeX)만 있으면 검색·원샷 추가·OA PDF·arXiv 알림 인박스가 작동(Zotero-only mode). Obsidian(아무 마크다운 폴더)을 더하면 노트·하이라이트 동기화·분석 큐가, Ollama를 더하면 관련논문 추천·알림 점수가 열린다.
+**요구조건은 계층형**: Zotero(+Better BibTeX)만 있으면 검색·원샷 추가(메타데이터만, Zotero 쪽 PDF 첨부는 안 됨)·arXiv 알림 인박스가 작동(Zotero-only mode). Obsidian(아무 마크다운 폴더)을 더하면 노트·하이라이트 동기화·분석 큐가, Ollama를 더하면 관련논문 추천·알림 점수가 열린다.
 
 ## 일상 사용 흐름
 

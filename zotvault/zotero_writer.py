@@ -369,25 +369,8 @@ def save_items_to_zotero(items: List[Dict[str, Any]], connector_url: str,
         return False, "Zotero unreachable ({}) — is the desktop app running?".format(exc)
 
 
-def _oa_pdf_url(doi: str, cfg: Config) -> str:
-    """Best OA PDF url for a DOI (one quick Unpaywall lookup), '' when none.
-
-    Used to put an `attachments` entry into the saveItems payload so that
-    ZOTERO downloads the PDF itself into its own storage — exactly what the
-    browser connector does. ZotVault still never writes storage/; licensed
-    (proxy) PDFs are not attempted here and stay on the daemon's OA→proxy
-    fallback path into ~/.zotvault/pdfs/.
-    """
-    try:
-        from zotvault.pdf_resolver import unpaywall_pdf_urls
-        urls = unpaywall_pdf_urls(doi, cfg.unpaywall_email, timeout=15)
-        return urls[0] if urls else ""
-    except Exception:
-        return ""  # advisory only — the daemon fallback still runs
-
-
 def add_identifiers(identifiers: List[str], cfg: Config, state: State,
-                    attach_pdf: bool = True, dry_run: bool = False,
+                    dry_run: bool = False,
                     force: bool = False) -> List[Dict[str, Any]]:
     """Resolve each identifier and save it to Zotero. Returns per-identifier results."""
     results: List[Dict[str, Any]] = []
@@ -421,17 +404,14 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 results.append(res)
                 continue
             # resolve
-            pdf_url = ""
             if cfg.translation_server_url:
                 items = ts_lookup(norm, cfg.translation_server_url, kind)
                 item = items[0]
             elif kind == "doi":
                 item = resolve_doi(norm)
-                if attach_pdf and cfg.unpaywall_email:
-                    pdf_url = _oa_pdf_url(norm, cfg)
             elif kind == "arxiv":
                 item = resolve_arxiv(norm)
-                pdf_url = item.pop("_pdf_url", "")
+                item.pop("_pdf_url", None)  # internal-only; not a Zotero field
             else:  # url without translation-server
                 res.update(status="error",
                            message="URL import needs translation-server "
@@ -443,21 +423,23 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 res.update(status="error", message="resolver returned no title")
                 results.append(res)
                 continue
-            if attach_pdf and pdf_url and "attachments" not in item:
-                item["attachments"] = [{
-                    "title": "Full Text PDF (OA)", "url": pdf_url,
-                    "mimeType": "application/pdf",
-                }]
-                res["pdf_attached"] = True
+            # No `attachments` hint is sent here (v0.9.1 tried this; v0.9.8
+            # live-tested it via Zotero's own debug log — the local connector
+            # discards any attachment on a saveItems call from an external
+            # script: "Translate: Ignoring attachment due to
+            # ATTACHMENT_MODE_IGNORE", a hardcoded ItemSaver mode, not a
+            # preference or a payload-format issue. The daemon's own
+            # pdf_resolver.resolve() still fetches the PDF into ZotVault's
+            # own cache (~/.zotvault/pdfs/) on the next pipeline cycle; it
+            # just can't land inside the Zotero item itself over this
+            # channel. See README "PDF resolution, politely".)
             if dry_run:
                 res.update(status="resolved", message="dry-run: not saved")
                 results.append(res)
                 continue
             ok, msg = save_items_to_zotero([item], cfg.connector_url)
             if ok:
-                note = ("saved to Zotero (Zotero is downloading the OA PDF)"
-                        if res.get("pdf_attached") else "saved to Zotero")
-                res.update(status="added", message=note)
+                res.update(status="added", message="saved to Zotero")
                 state.trace("zotero_added", norm, res["title"][:120])
             else:
                 res.update(status="error", message=msg)

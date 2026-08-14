@@ -137,10 +137,21 @@ class TestStripMarkup(unittest.TestCase):
         self.assertEqual(item["publicationTitle"], "Physical Review B")
 
 
-class TestOaAttachment(unittest.TestCase):
-    """DOI adds attach an OA PDF url so Zotero downloads it itself (v0.9.1)."""
+class TestNoZoteroSideAttachment(unittest.TestCase):
+    """v0.9.8: add_identifiers never sends an `attachments` hint and never
+    claims a PDF landed in Zotero.
 
-    def _run_add(self, oa_urls, email="me@example.org"):
+    v0.9.1 put an OA PDF `url` in the saveItems payload hoping Zotero would
+    fetch it itself. Live testing (with Zotero's own Debug Output Logging)
+    showed this is always discarded: "Translate: Ignoring attachment due to
+    ATTACHMENT_MODE_IGNORE" — a hardcoded ItemSaver mode for connector-server
+    saves from an external script, not a preference or a payload-format bug.
+    ZotVault's own pdf_resolver still fetches the PDF into its local cache on
+    the next pipeline cycle; it just can't land inside the Zotero item this
+    way, so the add path no longer pretends otherwise.
+    """
+
+    def _run_add(self, email="me@example.org"):
         from unittest import mock
 
         from zotvault.config import Config
@@ -160,27 +171,46 @@ class TestOaAttachment(unittest.TestCase):
 
         with mock.patch("zotvault.zotero_writer.resolve_doi",
                         return_value={"itemType": "journalArticle", "title": "T"}), \
-             mock.patch("zotvault.pdf_resolver.unpaywall_pdf_urls",
-                        return_value=oa_urls), \
+             mock.patch("zotvault.pdf_resolver.unpaywall_pdf_urls") as unpaywall, \
              mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save):
             results = add_identifiers(["10.1103/PhysRevB.90.1"], cfg, state)
-        return results, saved
+        return results, saved, unpaywall
 
-    def test_oa_found_lands_in_payload(self):
-        results, saved = self._run_add(["https://oa.example/x.pdf"])
-        self.assertEqual(results[0]["status"], "added")
-        att = saved["items"][0]["attachments"]
-        self.assertEqual(att[0]["url"], "https://oa.example/x.pdf")
-        self.assertEqual(att[0]["mimeType"], "application/pdf")
-        self.assertIn("PDF", results[0]["message"])
-
-    def test_no_oa_is_graceful(self):
-        results, saved = self._run_add([])
+    def test_no_attachment_hint_and_honest_message(self):
+        results, saved, unpaywall = self._run_add()
         self.assertEqual(results[0]["status"], "added")
         self.assertNotIn("attachments", saved["items"][0])
+        self.assertEqual(results[0]["message"], "saved to Zotero")
 
-    def test_no_email_skips_lookup(self):
-        results, saved = self._run_add(["https://oa.example/x.pdf"], email="")
+    def test_does_not_even_call_unpaywall(self):
+        """No point spending the lookup budget on a hint Zotero discards."""
+        _, _, unpaywall = self._run_add()
+        unpaywall.assert_not_called()
+
+    def test_arxiv_internal_pdf_url_never_leaks_into_payload(self):
+        from unittest import mock
+
+        from zotvault.config import Config
+        from zotvault.zotero_writer import add_identifiers
+
+        cfg = Config()
+        state = mock.Mock()
+        state.doi_map.return_value = {}
+        state.arxiv_map.return_value = {}
+        state.ignored_identifiers.return_value = {}
+        saved = {}
+
+        def fake_save(items, url, timeout=30):
+            saved["items"] = items
+            return True, "saved"
+
+        with mock.patch("zotvault.zotero_writer.resolve_arxiv",
+                        return_value={"itemType": "preprint", "title": "T",
+                                     "_pdf_url": "https://arxiv.org/pdf/2405.01234v1"}), \
+             mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save):
+            results = add_identifiers(["2405.01234"], cfg, state)
+        self.assertEqual(results[0]["status"], "added")
+        self.assertNotIn("_pdf_url", saved["items"][0])
         self.assertNotIn("attachments", saved["items"][0])
 
 

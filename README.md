@@ -17,7 +17,7 @@ arXiv / S2 / Crossref  ──▶  dashboard / CLI / agent ──▶  Zotero (BBT
 
 ## Features
 
-- **One-shot add** — `zotvault add 10.1103/PhysRevB.1.1 arXiv:2405.01234`: metadata via Crossref/DataCite/arXiv → straight into Zotero through the same local channel the browser connector uses — including the OA PDF when one exists (Zotero downloads it itself, like the browser connector). Duplicates are detected before saving; a pipeline cycle runs immediately after the add. Optional [translation-server](https://github.com/zotero/translation-server) support for arbitrary URL imports.
+- **One-shot add** — `zotvault add 10.1103/PhysRevB.1.1 arXiv:2405.01234`: metadata via Crossref/DataCite/arXiv → straight into Zotero through the same local channel the browser connector uses. No PDF is attached on the Zotero side — Zotero's local connector API silently ignores attachments on non-browser saves, so this is a Zotero limitation, not a ZotVault gap. The daemon still resolves and caches a PDF for the AI-analysis pipeline (see PDF resolution below); to get a PDF *inside* Zotero for reading/annotating, use Zotero's own "Find Available PDF" (right-click the item) after the add. Duplicates are detected before saving; a pipeline cycle runs immediately after the add. Optional [translation-server](https://github.com/zotero/translation-server) support for arbitrary URL imports.
 - **Automatic wiki-fication** — new Zotero items become Obsidian notes (template-compatible, atomic writes). Existing notes are **never rewritten**; your manual sections are structurally safe.
 - **Edit-safe highlight sync** — Zotero PDF highlights land in ONE marker-delimited block per note (grouped by color, deep links back to the exact annotation), kept in sync incl. deletions. Figure/area annotations are embedded as images (copied from Zotero's cache). Color groups can be renamed to *your* semantics (`label_red = "Core Claims"`). Everything outside the block is untouchable; unmarked legacy notes are opt-in (`[annotations] adopt_existing`). See [docs/MIGRATION.md](docs/MIGRATION.md).
 - **PDF resolution, politely** — Zotero attachment → cache → arXiv → Unpaywall → (opt-in) institutional proxy with browser-session cookies. Sequential, delayed, daily-capped: designed to *not* get your campus blocked. See [docs/PROXY.md](docs/PROXY.md).
@@ -37,7 +37,7 @@ ZotVault works with just Zotero; every further tool you already use unlocks a la
 
 | you have | you get |
 |---|---|
-| **Zotero + [Better BibTeX](https://retorque.re/zotero-better-bibtex/)** (required) | search across arXiv/S2/Crossref with in-library marks, one-shot `add` with OA PDF, arXiv alert inbox (approve → Zotero), proxy PDF fallback, dashboard, audit trace — *Zotero-only mode* |
+| **Zotero + [Better BibTeX](https://retorque.re/zotero-better-bibtex/)** (required) | search across arXiv/S2/Crossref with in-library marks, one-shot `add` (metadata only — no Zotero-side PDF, see Features), arXiv alert inbox (approve → Zotero), proxy PDF fallback, dashboard, audit trace — *Zotero-only mode* |
 | **+ a markdown folder** (Obsidian vault or any directory — set `[vault] dir`) | automatic per-paper notes, edit-safe highlight/figure sync, AI-analysis queue, citation graph / related / synthesis notes, index & log upkeep |
 | **+ [Ollama](https://ollama.com)** (optional, local & free) | related-paper suggestions (embeddings), alert triage scoring, local analysis engine |
 

@@ -342,7 +342,7 @@ def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
     state = State(cfg.state_db)
     try:
         results = add_identifiers(args.identifiers, cfg, state,
-                                  attach_pdf=not args.no_pdf, dry_run=args.dry_run,
+                                  dry_run=args.dry_run,
                                   force=getattr(args, "force", False))
     finally:
         state.close()
@@ -607,7 +607,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("add", help="add paper(s) to Zotero by DOI / arXiv id / URL")
     sp.add_argument("identifiers", nargs="+")
     sp.add_argument("--dry-run", action="store_true", help="resolve metadata only")
-    sp.add_argument("--no-pdf", action="store_true", help="don't attach the arXiv PDF")
     sp.add_argument("--force", action="store_true",
                     help="add even if the paper is on the ignore list")
 

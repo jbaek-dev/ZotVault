@@ -253,8 +253,7 @@ class TestReconciliation(TestPipelineE2E):
                         return_value={"itemType": "journalArticle", "title": "T"}), \
              mock.patch("zotvault.zotero_writer.save_items_to_zotero",
                         return_value=(True, "saved")):
-            res = add_identifiers(["10.1234/one"], self.cfg, state, force=True,
-                                  attach_pdf=False)
+            res = add_identifiers(["10.1234/one"], self.cfg, state, force=True)
         self.assertEqual(res[0]["status"], "added")
         state.close()
 
