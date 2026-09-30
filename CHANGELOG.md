@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.8 — 2026-09-30 (honest PDF docs, init path fix)
 
 - Removed the false claim (code and docs) that one-shot `add` attaches an
   OA PDF to the Zotero item. Live testing with Zotero's Debug Output
