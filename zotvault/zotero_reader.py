@@ -24,6 +24,10 @@ from typing import Dict, List, Optional, Tuple
 
 _EXTRA_CITEKEY_RE = re.compile(r"^\s*Citation Key:\s*(\S+)\s*$", re.IGNORECASE | re.MULTILINE)
 _YEAR_RE = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
+# Titles of attachments that are supplementary material, not the paper itself.
+# The words match any case; the abbreviations only as written ("Si" is silicon).
+_SUPPLEMENT_TITLE_RE = re.compile(
+    r"(?i:supplement|supporting\s+info|appendix)|\b(?:SI|ESI|ESM)\b")
 
 
 @dataclass
@@ -192,22 +196,37 @@ class ZoteroReader:
 
     def _pdf_for(self, conn: sqlite3.Connection, item_id: int) -> Optional[str]:
         rows = conn.execute(
-            "SELECT ai.key AS akey, ia.path AS apath "
+            "SELECT ai.key AS akey, ia.path AS apath, "
+            "(SELECT v.value FROM itemData d JOIN itemDataValues v ON v.valueID = d.valueID "
+            " JOIN fields f ON f.fieldID = d.fieldID "
+            " WHERE d.itemID = ai.itemID AND f.fieldName = 'title') AS atitle "
             "FROM itemAttachments ia JOIN items ai ON ia.itemID = ai.itemID "
             "WHERE ia.parentItemID = ? AND ia.contentType = 'application/pdf' "
-            "AND ai.itemID NOT IN (SELECT itemID FROM deletedItems)",
+            "AND ai.itemID NOT IN (SELECT itemID FROM deletedItems) "
+            "ORDER BY ai.itemID",
             (item_id,),
         ).fetchall()
+        paths: List[Tuple[str, bool]] = []   # (path, is_supplement) in attachment order
         for r in rows:
             apath = r["apath"] or ""
+            p: Optional[str] = None
             if apath.startswith("storage:"):
-                p = self.data_dir / "storage" / r["akey"] / apath[len("storage:"):]
-                if p.exists():
-                    return str(p)
+                cand = self.data_dir / "storage" / r["akey"] / apath[len("storage:"):]
+                if cand.exists():
+                    p = str(cand)
             elif apath.startswith("/"):
                 if Path(apath).exists():
-                    return apath
-        return None
+                    p = apath
+            if p:
+                paths.append((p, bool(_SUPPLEMENT_TITLE_RE.search(r["atitle"] or ""))))
+        # A supplementary-information PDF is not the paper's main text
+        # (analysis, highlights and the note's PDF link must not latch onto it).
+        # Prefer a non-supplement PDF; if every PDF looks like one, keep the old
+        # first-PDF behaviour rather than lose the item's only file.
+        for p, is_supp in paths:
+            if not is_supp:
+                return p
+        return paths[0][0] if paths else None
 
     def annotations_map(self, conn: sqlite3.Connection) -> Dict[int, List[Annotation]]:
         """All PDF annotations, grouped by top-level paper itemID (one query)."""

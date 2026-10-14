@@ -106,7 +106,7 @@
     },
     {
       "file": "zotvault/zotero_writer.py",
-      "purpose": "One-shot add: DOI/arXiv -> Crossref/DataCite/arXiv resolvers -> connector saveItems. v0.9.1: strip_markup() sanitizes MathML/JATS in titles (empty-sep joins math text nodes, drops mml:annotation, unescapes entities; space-sep for abstracts). v0.9.8: no PDF is ever attached on the Zotero side -- confirmed via live Debug Output Logging that Zotero's local connector API runs ItemSaver in ATTACHMENT_MODE_IGNORE for connector-server-driven (non-browser) saveItems calls, a hardcoded behavior independent of payload shape or the downloadAssociatedFiles pref. PDFs still land in ZotVault's own cache via pdf_resolver.py (storage/ invariant intact); getting a PDF into Zotero itself is a manual step (Zotero's native \"Find Available PDF\") or the deferred Web API path below",
+      "purpose": "One-shot add: DOI/arXiv -> Crossref/DataCite/arXiv resolvers -> connector saveItems. v0.9.1: strip_markup() sanitizes MathML/JATS in titles (empty-sep joins math text nodes, drops mml:annotation, unescapes entities; space-sep for abstracts). v0.10.0: after saveItems (item carries explicit connector id 'zv1' + sessionID) the OA PDF, fetched BEFORE the save (arXiv then Unpaywall, daily budget + delay), is uploaded via POST /connector/saveAttachment in the SAME session (only HTTP 201 = success); if no PDF is found Zotero's own /connector/saveAttachmentFromResolver is asked. saveItems itself still cannot attach (ATTACHMENT_MODE_IGNORE, confirmed in Zotero's debug log). Add-time only: the parent must be an item saved in the same session. Duplicate check also reads Zotero's own DB (_zotero_identifier_maps), not just state.db",
       "key": [
         "classify_identifier",
         "resolve_doi",
@@ -392,8 +392,12 @@
       "how": "add search_<source>() in search.py returning SearchResult, wire into search()"
     },
     {
-      "name": "Zotero-side PDF attach via Web API (BACKLOG, gated)",
-      "how": "local connector saveItems cannot attach PDFs (ATTACHMENT_MODE_IGNORE, confirmed v0.9.8 via Debug Output Logging -- not a payload or pref issue). Zotero's Web API item-template for linkMode=linked_file (GET https://api.zotero.org/items/new?itemType=attachment&linkMode=linked_file) has a bare path field with no upload-shaped fields, so this route isn't dead on arrival, but do NOT build it until this pre-check passes: create one attachment item via the Web API with path=~/.zotvault/pdfs/<citekey>.pdf pointing at a real cached PDF, sync that library in desktop Zotero, and confirm the attachment actually resolves and opens there. If it doesn't resolve post-sync, the path is dead and should stay out of scope. Adds an API-key/sync-enabled requirement (trust footprint), so keep this opt-in and separate from the local-only default path"
+      "name": "supplementary information PDFs (BACKLOG)",
+      "how": "SUPPLEMENTARY INFORMATION (BACKLOG): Crossref exposes no SI link/relation (checked APS, Science); publishers use different URL schemes (APS /supplemental/, ACS /doi/suppl/, Nature static-content ESM, Science /doi/suppl/). Plan: attach SI as a second child of the same Zotero item via the same /connector/saveAttachment path, titled 'Supplementary Information' (zotero_reader._SUPPLEMENT_TITLE_RE keeps it from being chosen as the main PDF). Sources: user-supplied URL first; per-publisher adapters opt-in and tested individually. One vault note per Zotero parent item, so SI never creates a second note"
+    },
+    {
+      "name": "PDF for EXISTING Zotero items (BACKLOG, gated)",
+      "how": "the connector can only attach to an item saved in the same session, so papers already in Zotero still need Find Available PDF. A Zotero Web API route (GET https://api.zotero.org/items/new?itemType=attachment&linkMode=linked_file has a bare path field) might link files to existing items, but do NOT build it until a pre-check passes: create one linked_file attachment via the Web API pointing at a real cached PDF, sync in desktop Zotero, and confirm it resolves and opens. Adds an API-key/sync trust footprint, so keep it opt-in and separate from the local-only default"
     },
     {
       "name": "analysis engine",

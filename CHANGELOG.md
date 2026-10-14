@@ -1,24 +1,36 @@
 # Changelog
 
-## 0.9.8 — 2026-09-30 (honest PDF docs, init path fix)
+## 0.10.0 — Unreleased (PDF lands inside Zotero)
 
-- Removed the false claim (code and docs) that one-shot `add` attaches an
-  OA PDF to the Zotero item. Live testing with Zotero's Debug Output
-  Logging confirmed Zotero's local connector API runs its ItemSaver in
-  `ATTACHMENT_MODE_IGNORE` for connector-server-driven (non-browser)
-  `saveItems` calls — a hardcoded behavior, not a `downloadAssociatedFiles`
-  preference or payload-format issue (three attachment shapes tested, all
-  discarded identically). `zotvault add` previously reported
-  "Zotero is downloading the OA PDF" with zero verification that any
-  attachment was ever created; it now reports plainly that the item was
-  saved, with no PDF claim. The `--no-pdf` CLI flag is removed (it no
-  longer had any effect to toggle). PDFs still land in ZotVault's own
-  cache for the AI-analysis pipeline; to get a PDF inside Zotero itself,
-  use Zotero's native "Find Available PDF". A Web API-based path to
-  actually attach PDFs in Zotero is tracked as a gated backlog item (see
-  `graph.json` extension_points) — deferred pending an empirical
-  pre-check, since it would add an API-key/sync-enabled trust footprint
-  the local-only path doesn't have. 138 tests.
+- `zotvault add` (and approving an alert, and the dashboard's Add) now puts
+  the open-access PDF inside the Zotero item. Zotero's local connector runs
+  `saveItems` in `ATTACHMENT_MODE_IGNORE`, so an `attachments` hint is always
+  discarded (confirmed in Zotero's debug log). The browser connector gets its
+  PDF in by a second call in the same save session, `/connector/saveAttachment`;
+  ZotVault now does the same. The PDF is fetched first (arXiv, then Unpaywall,
+  same polite delays and daily budget as the daemon), the item is saved with an
+  explicit connector id, and the file is uploaded as its child. If no OA PDF is
+  found, Zotero's own resolver (`/connector/saveAttachmentFromResolver`, the
+  engine behind Find Available PDF) is asked. Success means HTTP 201 from the
+  upload and the message says so; a failed or missing PDF is reported as such.
+  The two-call wire protocol was verified live on Zotero 9.0.6 with a test
+  script (attachment row under the new item, byte-identical 20 MB file in
+  `storage/`); the shipped `add` path itself is covered by mocked tests, and
+  the Zotero-resolver fallback has not been run against Zotero yet. Only works at add time (the parent
+  must be an item saved in the same session); existing items still need
+  Find Available PDF. `--no-pdf` is back and now really skips the PDF.
+  (The earlier draft of this release claimed this was impossible. That
+  conclusion came from testing `saveItems` alone.)
+- `add` now checks Zotero's own database for an existing DOI/arXiv id across
+  every regular item type, not just ZotVault's `state.db` (which only knows the
+  item types the pipeline makes notes for). Found while testing: a paper that
+  was already in the library as a `webpage` item (saved from its arXiv abstract
+  page) was saved a second time as a journal article.
+- A PDF attachment titled like supplementary material (Supplementary / Supporting
+  Information / Appendix, or SI / ESI / ESM as written) is no longer preferred as
+  the paper's main PDF when the item also has another PDF, so analysis, highlight
+  sync and the note's PDF link do not latch onto an SI file. An item whose only
+  PDF looks like SI keeps using it.
 - Fixed `zotvault init` corrupting the vault path when it's pasted from a
   shell-escaped source (terminal tab-completion, or dragging a folder into
   a POSIX terminal escapes spaces/tildes as `Mobile\ Documents`,

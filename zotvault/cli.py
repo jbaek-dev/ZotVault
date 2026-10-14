@@ -343,7 +343,8 @@ def cmd_add(cfg: Config, args: argparse.Namespace) -> int:
     try:
         results = add_identifiers(args.identifiers, cfg, state,
                                   dry_run=args.dry_run,
-                                  force=getattr(args, "force", False))
+                                  force=getattr(args, "force", False),
+                                  attach_pdf=not getattr(args, "no_pdf", False))
     finally:
         state.close()
     failures = 0
@@ -609,6 +610,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--dry-run", action="store_true", help="resolve metadata only")
     sp.add_argument("--force", action="store_true",
                     help="add even if the paper is on the ignore list")
+    sp.add_argument("--no-pdf", action="store_true",
+                    help="metadata only: do not fetch/attach the open-access PDF")
 
     sp = sub.add_parser("search", help="search arXiv / Semantic Scholar / Crossref")
     sp.add_argument("query")

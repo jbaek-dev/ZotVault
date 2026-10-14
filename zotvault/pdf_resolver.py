@@ -72,14 +72,22 @@ def unpaywall_pdf_urls(doi: str, email: str, timeout: int) -> List[str]:
     return urls
 
 
-def download_pdf(url: str, dest: Path, cfg: Config) -> bool:
+def fetch_pdf_bytes(url: str, cfg: Config) -> Optional[bytes]:
+    """GET `url`; return the body only if it really is a PDF."""
     req = urllib.request.Request(url, headers={"User-Agent": _ua(cfg), "Accept": "application/pdf,*/*"})
     try:
         with urllib.request.urlopen(req, timeout=cfg.download_timeout_sec) as resp:
             data = resp.read()
     except Exception:
-        return False
+        return None
     if len(data) < _MIN_PDF_BYTES or not data[:8].lstrip().startswith(b"%PDF"):
+        return None
+    return data
+
+
+def download_pdf(url: str, dest: Path, cfg: Config) -> bool:
+    data = fetch_pdf_bytes(url, cfg)
+    if data is None:
         return False
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(".part")

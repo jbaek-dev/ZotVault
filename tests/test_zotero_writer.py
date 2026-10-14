@@ -137,81 +137,281 @@ class TestStripMarkup(unittest.TestCase):
         self.assertEqual(item["publicationTitle"], "Physical Review B")
 
 
-class TestNoZoteroSideAttachment(unittest.TestCase):
-    """v0.9.8: add_identifiers never sends an `attachments` hint and never
-    claims a PDF landed in Zotero.
+class TestPdfAttachAtAdd(unittest.TestCase):
+    """v0.10.0: add_identifiers attaches the PDF in the SAME connector session.
 
-    v0.9.1 put an OA PDF `url` in the saveItems payload hoping Zotero would
-    fetch it itself. Live testing (with Zotero's own Debug Output Logging)
-    showed this is always discarded: "Translate: Ignoring attachment due to
-    ATTACHMENT_MODE_IGNORE" — a hardcoded ItemSaver mode for connector-server
-    saves from an external script, not a preference or a payload-format bug.
-    ZotVault's own pdf_resolver still fetches the PDF into its local cache on
-    the next pipeline cycle; it just can't land inside the Zotero item this
-    way, so the add path no longer pretends otherwise.
+    saveItems alone can't attach (ATTACHMENT_MODE_IGNORE); the browser
+    connector sends the file in a second call, /connector/saveAttachment,
+    naming the saved item as `parentItemID`. Success is HTTP 201 only.
     """
 
-    def _run_add(self, email="me@example.org"):
+    PDF = b"%PDF-1.5 " + b"x" * 20000
+
+    def _cfg_state(self, email="me@example.org"):
         from unittest import mock
 
         from zotvault.config import Config
-        from zotvault.zotero_writer import add_identifiers
 
         cfg = Config()
         cfg.unpaywall_email = email
+        cfg.request_delay_sec = 0
         state = mock.Mock()
         state.doi_map.return_value = {}
         state.arxiv_map.return_value = {}
         state.ignored_identifiers.return_value = {}
-        saved = {}
+        state.downloads_today.return_value = 0
+        return cfg, state
 
-        def fake_save(items, url, timeout=30):
-            saved["items"] = items
+    def _run(self, ids=("10.1103/PhysRevB.90.1",), pdf=PDF, upload=(True, "attached"),
+             resolver=(False, "x"), zotero_maps=({}, {}), **kw):
+        from unittest import mock
+
+        from zotvault.zotero_writer import add_identifiers
+
+        cfg, state = self._cfg_state()
+        calls = {"saved": None, "sid": None, "upload": None, "resolver": 0}
+
+        def fake_save(items, url, timeout=30, session_id=None):
+            calls["saved"], calls["sid"] = items, session_id
             return True, "saved"
 
-        with mock.patch("zotvault.zotero_writer.resolve_doi",
-                        return_value={"itemType": "journalArticle", "title": "T"}), \
-             mock.patch("zotvault.pdf_resolver.unpaywall_pdf_urls") as unpaywall, \
-             mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save):
-            results = add_identifiers(["10.1103/PhysRevB.90.1"], cfg, state)
-        return results, saved, unpaywall
+        def fake_upload(url, sid, data, src, **k):
+            calls["upload"] = (sid, data, src)
+            return upload
 
-    def test_no_attachment_hint_and_honest_message(self):
-        results, saved, unpaywall = self._run_add()
+        def fake_resolver(url, sid, **k):
+            calls["resolver"] += 1
+            return resolver
+
+        with mock.patch("zotvault.zotero_writer.resolve_doi",
+                        return_value={"itemType": "journalArticle", "title": "T", "DOI": ids[0]}), \
+             mock.patch("zotvault.zotero_writer._zotero_identifier_maps", return_value=zotero_maps), \
+             mock.patch("zotvault.pdf_resolver.unpaywall_pdf_urls",
+                        return_value=["https://oa.example/p.pdf"]) as unpay, \
+             mock.patch("zotvault.pdf_resolver.fetch_pdf_bytes", return_value=pdf) as fetch, \
+             mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save), \
+             mock.patch("zotvault.zotero_writer.attach_pdf_to_saved_item", fake_upload), \
+             mock.patch("zotvault.zotero_writer.attach_via_zotero_resolver", fake_resolver):
+            results = add_identifiers(list(ids), cfg, state, **kw)
+        return results, calls, fetch, unpay
+
+    def test_payload_has_parent_id_and_no_attachments_key(self):
+        results, calls, _, _ = self._run()
+        self.assertNotIn("attachments", calls["saved"][0])
+        self.assertEqual(calls["saved"][0]["id"], "zv1")
+        self.assertTrue(calls["sid"])
+
+    def test_pdf_uploaded_in_same_session(self):
+        results, calls, _, _ = self._run()
         self.assertEqual(results[0]["status"], "added")
-        self.assertNotIn("attachments", saved["items"][0])
+        self.assertEqual(results[0]["pdf"], "attached")
+        self.assertIn("PDF attached", results[0]["message"])
+        sid, data, src = calls["upload"]
+        self.assertEqual(sid, calls["sid"])
+        self.assertEqual(data, self.PDF)
+        self.assertEqual(src, "https://oa.example/p.pdf")
+
+    def test_upload_failure_is_reported_not_hidden(self):
+        results, _, _, _ = self._run(upload=(False, "Zotero answered HTTP 200"))
+        self.assertEqual(results[0]["status"], "added")
+        self.assertEqual(results[0]["pdf"], "failed")
+        self.assertNotIn("PDF attached", results[0]["message"])
+        self.assertIn("Find Available PDF", results[0]["message"])
+
+    def test_no_pdf_found_falls_back_to_zotero_resolver(self):
+        results, calls, _, _ = self._run(pdf=None, resolver=(True, "Full Text PDF"))
+        self.assertEqual(calls["resolver"], 1)
+        self.assertIsNone(calls["upload"])
+        self.assertEqual(results[0]["pdf"], "attached")
+
+    def test_nothing_found_anywhere_says_so(self):
+        results, calls, _, _ = self._run(pdf=None, resolver=(False, "500"))
+        self.assertEqual(results[0]["status"], "added")
+        self.assertEqual(results[0]["pdf"], "none")
+        self.assertIn("no PDF attached", results[0]["message"])
+
+    def test_no_pdf_flag_skips_everything(self):
+        results, calls, fetch, unpay = self._run(attach_pdf=False)
+        fetch.assert_not_called()
+        unpay.assert_not_called()
+        self.assertIsNone(calls["upload"])
+        self.assertEqual(calls["resolver"], 0)
         self.assertEqual(results[0]["message"], "saved to Zotero")
 
-    def test_does_not_even_call_unpaywall(self):
-        """No point spending the lookup budget on a hint Zotero discards."""
-        _, _, unpaywall = self._run_add()
-        unpaywall.assert_not_called()
+    def test_dry_run_downloads_and_saves_nothing(self):
+        results, calls, fetch, _ = self._run(dry_run=True)
+        fetch.assert_not_called()
+        self.assertIsNone(calls["saved"])
+        self.assertEqual(results[0]["status"], "resolved")
+
+    def test_duplicate_found_in_zotero_db_even_if_state_db_is_blind(self):
+        results, calls, fetch, _ = self._run(
+            zotero_maps=({"10.1103/physrevb.90.1": "ABCD1234"}, {}))
+        self.assertEqual(results[0]["status"], "duplicate")
+        self.assertIsNone(calls["saved"])
+        fetch.assert_not_called()
+
+    def test_zotero_identifier_maps_cover_webpage_items(self):
+        """A paper saved from an arXiv abstract page is a `webpage` item; the
+        duplicate check must still see it (it is not a pipeline item type)."""
+        import sqlite3
+        from unittest import mock
+
+        from zotvault.zotero_reader import RawItem
+        from zotvault.zotero_writer import _zotero_identifier_maps
+
+        seen = {}
+
+        class FakeReader:
+            def __init__(self, *a, **k): pass
+            def snapshot(self):
+                conn = sqlite3.connect(":memory:")
+                conn.execute("CREATE TABLE itemTypes (typeName TEXT)")
+                conn.executemany("INSERT INTO itemTypes VALUES (?)",
+                                 [("journalArticle",), ("webpage",), ("attachment",),
+                                  ("note",), ("annotation",)])
+                return conn
+            def fetch_items(self, conn, types):
+                seen["types"] = types
+                it = RawItem(item_id=1, item_key="WEBPG", type_name="webpage", date_added="")
+                it.fields = {"url": "https://arxiv.org/abs/2506.07043v3"}
+                return [it]
+            def cleanup(self): pass
+
+        from zotvault.config import Config
+        with mock.patch("zotvault.zotero_reader.ZoteroReader", FakeReader):
+            doi_map, arxiv_map = _zotero_identifier_maps(Config())
+        self.assertIn("webpage", seen["types"])
+        self.assertNotIn("attachment", seen["types"])
+        self.assertEqual(arxiv_map.get("2506.07043"), "WEBPG")
+
+    def test_arxiv_doi_matches_arxiv_item_in_zotero(self):
+        results, calls, _, _ = self._run(
+            ids=("10.48550/arXiv.2506.07043",),
+            zotero_maps=({}, {"2506.07043": "ABCD1234"}))
+        self.assertEqual(results[0]["status"], "duplicate")
 
     def test_arxiv_internal_pdf_url_never_leaks_into_payload(self):
         from unittest import mock
 
-        from zotvault.config import Config
         from zotvault.zotero_writer import add_identifiers
 
-        cfg = Config()
-        state = mock.Mock()
-        state.doi_map.return_value = {}
-        state.arxiv_map.return_value = {}
-        state.ignored_identifiers.return_value = {}
+        cfg, state = self._cfg_state()
         saved = {}
 
-        def fake_save(items, url, timeout=30):
+        def fake_save(items, url, timeout=30, session_id=None):
             saved["items"] = items
             return True, "saved"
 
         with mock.patch("zotvault.zotero_writer.resolve_arxiv",
                         return_value={"itemType": "preprint", "title": "T",
                                      "_pdf_url": "https://arxiv.org/pdf/2405.01234v1"}), \
+             mock.patch("zotvault.zotero_writer._zotero_identifier_maps", return_value=({}, {})), \
              mock.patch("zotvault.zotero_writer.save_items_to_zotero", fake_save):
-            results = add_identifiers(["2405.01234"], cfg, state)
+            results = add_identifiers(["2405.01234"], cfg, state, attach_pdf=False)
         self.assertEqual(results[0]["status"], "added")
         self.assertNotIn("_pdf_url", saved["items"][0])
         self.assertNotIn("attachments", saved["items"][0])
+
+
+class TestAttachWire(unittest.TestCase):
+    """The HTTP-level contract of the two connector calls."""
+
+    def test_only_201_is_success(self):
+        from unittest import mock
+
+        from zotvault.zotero_writer import attach_pdf_to_saved_item
+
+        for status, expect in ((201, True), (200, False), (400, False), (500, False)):
+            with mock.patch("zotvault.zotero_writer._post", return_value=(status, b"msg")):
+                ok, _ = attach_pdf_to_saved_item("http://127.0.0.1:23119", "sid", b"%PDF", "u")
+            self.assertEqual(ok, expect, status)
+
+    def test_metadata_header_is_ascii_and_names_parent_and_session(self):
+        from unittest import mock
+
+        from zotvault.zotero_writer import attach_pdf_to_saved_item
+
+        seen = {}
+
+        def fake_post(url, data, headers, timeout):
+            seen.update(url=url, headers=headers, data=data)
+            return 201, b""
+
+        with mock.patch("zotvault.zotero_writer._post", fake_post):
+            attach_pdf_to_saved_item("http://127.0.0.1:23119/", "SID", b"%PDF-x",
+                                     "https://x.org/WSe\u2082.pdf")
+        meta = seen["headers"]["X-Metadata"]
+        meta.encode("ascii")  # HTTP header values must stay ASCII
+        import json as _json
+        d = _json.loads(meta)
+        self.assertEqual((d["sessionID"], d["parentItemID"]), ("SID", "zv1"))
+        self.assertTrue(seen["url"].endswith("/connector/saveAttachment"))
+        self.assertEqual(seen["headers"]["Content-Type"], "application/pdf")
+        self.assertEqual(seen["data"], b"%PDF-x")
+
+
+class TestSupplementPreferMain(unittest.TestCase):
+    """A Supplementary-Information PDF attached to the same item must not be
+    picked as the paper's main text, but must never cost an item its only PDF.
+    Runs the real `_pdf_for` SQL against an in-memory Zotero-shaped schema."""
+
+    def _reader(self, attachments):
+        """attachments: [(title, filename)] in insertion (= itemID) order."""
+        import sqlite3
+        import tempfile
+        from pathlib import Path
+
+        from zotvault.zotero_reader import ZoteroReader
+
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, str(tmp), True)
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript("""
+            CREATE TABLE items (itemID INTEGER PRIMARY KEY, key TEXT);
+            CREATE TABLE itemAttachments (itemID INT, parentItemID INT, contentType TEXT, path TEXT);
+            CREATE TABLE fields (fieldID INTEGER PRIMARY KEY, fieldName TEXT);
+            CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
+            CREATE TABLE itemData (itemID INT, fieldID INT, valueID INT);
+            CREATE TABLE deletedItems (itemID INT);
+            INSERT INTO fields VALUES (1, 'title');
+            INSERT INTO items VALUES (1, 'PARENT');
+        """)
+        for n, (title, fname) in enumerate(attachments, start=10):
+            key = "ATT%d" % n
+            conn.execute("INSERT INTO items VALUES (?, ?)", (n, key))
+            conn.execute("INSERT INTO itemAttachments VALUES (?, 1, 'application/pdf', ?)",
+                         (n, "storage:" + fname))
+            conn.execute("INSERT INTO itemDataValues VALUES (?, ?)", (n, title))
+            conn.execute("INSERT INTO itemData VALUES (?, 1, ?)", (n, n))
+            d = tmp / "storage" / key
+            d.mkdir(parents=True)
+            (d / fname).write_bytes(b"%PDF-1.5")
+        return ZoteroReader(tmp), conn
+
+    def test_main_wins_even_when_supplement_was_attached_first(self):
+        r, conn = self._reader([("Supplementary Information", "si.pdf"),
+                                ("Full Text PDF", "main.pdf")])
+        self.assertTrue(r._pdf_for(conn, 1).endswith("main.pdf"))
+
+    def test_only_supplement_is_kept_as_before(self):
+        r, conn = self._reader([("Supporting Information", "si.pdf")])
+        self.assertTrue(r._pdf_for(conn, 1).endswith("si.pdf"))
+
+    def test_silicon_is_not_a_supplement(self):
+        """"Si" (the element) in a drag-dropped title must not demote the paper."""
+        r, conn = self._reader([("Wang - 2020 - Band structure of Si SiO2 interfaces", "a.pdf"),
+                                ("Full Text PDF", "b.pdf")])
+        self.assertTrue(r._pdf_for(conn, 1).endswith("a.pdf"))
+
+    def test_abbreviations_match_as_written(self):
+        from zotvault.zotero_reader import _SUPPLEMENT_TITLE_RE as rx
+
+        for t in ("SI", "ESI", "ESM 1", "Wang - Supplement", "supporting info", "Appendix A"):
+            self.assertTrue(rx.search(t), t)
+        for t in ("Full Text PDF", "Band structure of Si SiO2", "Accepted Version"):
+            self.assertFalse(rx.search(t), t)
 
 
 class TestDelatex(unittest.TestCase):

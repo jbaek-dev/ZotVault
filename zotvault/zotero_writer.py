@@ -345,12 +345,13 @@ def ts_lookup(identifier_or_url: str, ts_url: str, kind: str, timeout: int = 30)
 # ---------------------------------------------------------------------------
 
 def save_items_to_zotero(items: List[Dict[str, Any]], connector_url: str,
-                         timeout: int = 30) -> Tuple[bool, str]:
+                         timeout: int = 30,
+                         session_id: Optional[str] = None) -> Tuple[bool, str]:
     if not items:
         return False, "nothing to save"
     payload = json.dumps({
         "items": items,
-        "sessionID": uuid.uuid4().hex,
+        "sessionID": session_id or uuid.uuid4().hex,
         "uri": "https://zotvault.local/import",
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -369,13 +370,152 @@ def save_items_to_zotero(items: List[Dict[str, Any]], connector_url: str,
         return False, "Zotero unreachable ({}) — is the desktop app running?".format(exc)
 
 
+def _strip_ver(arxiv_id: str) -> str:
+    """2506.07043v3 -> 2506.07043 (old-style ids like solv-int/9901001 keep their 'v')."""
+    return re.sub(r"v\d+$", "", arxiv_id.lower())
+
+
+def _zotero_identifier_maps(cfg: Config) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """lowercase DOI -> item key, arXiv id -> item key, read from a snapshot of
+    Zotero's own database.
+
+    Covers EVERY regular item type, not just the ones the pipeline makes notes
+    for: "is this paper already in Zotero?" must also see a `webpage` saved from
+    an arXiv abstract page by the browser connector. Fail-open: an unreadable DB
+    just means the state.db check is the only guard.
+    """
+    from zotvault.pdf_resolver import find_arxiv_id
+    from zotvault.zotero_reader import ZoteroReader
+
+    doi_map: Dict[str, str] = {}
+    arxiv_map: Dict[str, str] = {}
+    reader = ZoteroReader(cfg.zotero_data_dir, cfg.connector_url)
+    try:
+        conn = reader.snapshot()
+        try:
+            types = [r[0] for r in conn.execute(
+                "SELECT typeName FROM itemTypes "
+                "WHERE typeName NOT IN ('attachment', 'note', 'annotation')")]
+            for it in reader.fetch_items(conn, types):
+                if it.doi:
+                    doi_map[it.doi.lower()] = it.item_key
+                ax = find_arxiv_id(it)
+                if ax:
+                    arxiv_map[_strip_ver(ax)] = it.item_key
+        finally:
+            conn.close()
+    except Exception:
+        pass
+    finally:
+        reader.cleanup()
+    return doi_map, arxiv_map
+
+
+# The connector key the saved item carries inside its save session. The PDF
+# upload names it as `parentItemID`; without an explicit id every item in a
+# session shares the key `undefined` and a batch would attach to the wrong one.
+_PARENT_ID = "zv1"
+
+_NO_PDF_HINT = "use Zotero's Find Available PDF"
+
+
+def _post(url: str, data: bytes, headers: Dict[str, str], timeout: int) -> Tuple[int, bytes]:
+    req = urllib.request.Request(url, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+
+
+def attach_pdf_to_saved_item(connector_url: str, session_id: str, pdf: bytes,
+                             source_url: str, parent_id: str = _PARENT_ID,
+                             timeout: int = 90) -> Tuple[bool, str]:
+    """Upload `pdf` as a child of an item saved earlier in the SAME session.
+
+    This is what Zotero's own browser connector does. `saveItems` alone cannot
+    attach files (the local connector runs it in ATTACHMENT_MODE_IGNORE); the
+    separate /connector/saveAttachment call can. Only HTTP 201 means success --
+    200 is Zotero's "library files are not editable" answer.
+    """
+    # json.dumps keeps its default ensure_ascii: the metadata travels in an
+    # HTTP header, which must stay ASCII (titles like WSe₂ would break it).
+    meta = json.dumps({"sessionID": session_id, "parentItemID": parent_id,
+                       "title": "Full Text PDF", "url": source_url})
+    try:
+        status, body = _post(connector_url.rstrip("/") + "/connector/saveAttachment", pdf,
+                             {"Content-Type": "application/pdf", "X-Metadata": meta,
+                              "User-Agent": _ua()}, timeout)
+    except Exception as exc:
+        return False, "attachment upload failed ({})".format(exc)
+    if status == 201:
+        return True, "attached"
+    return False, "Zotero answered HTTP {} ({})".format(status, body[:120].decode("utf-8", "replace"))
+
+
+def attach_via_zotero_resolver(connector_url: str, session_id: str,
+                               parent_id: str = _PARENT_ID,
+                               timeout: int = 90) -> Tuple[bool, str]:
+    """Ask Zotero itself to find an OA PDF (same engine as Find Available PDF)."""
+    payload = json.dumps({"sessionID": session_id, "itemID": parent_id}).encode("utf-8")
+    try:
+        status, body = _post(connector_url.rstrip("/") + "/connector/saveAttachmentFromResolver",
+                             payload, {"Content-Type": "application/json",
+                                       "User-Agent": _ua()}, timeout)
+    except Exception as exc:
+        return False, str(exc)
+    return status == 201, body[:120].decode("utf-8", "replace")
+
+
+def fetch_pdf_for_add(kind: str, norm: str, item: Dict[str, Any], cfg: Config,
+                      state: State) -> Tuple[Optional[bytes], str, str]:
+    """Get the PDF bytes BEFORE saving (a connector save session expires, so
+    nothing slow may sit between saveItems and the upload).
+
+    Returns (bytes | None, source_url, note). Same etiquette as the daemon:
+    sequential, delayed, counted against the daily download budget.
+    """
+    import time
+
+    from zotvault import pdf_resolver
+
+    if state.downloads_today() >= cfg.daily_download_limit:
+        return None, "", "daily download limit reached"
+    candidates: List[str] = []
+    arxiv_id = norm if kind == "arxiv" else None
+    if arxiv_id is None and kind == "doi":
+        m = re.match(r"^10\.48550/arxiv\.(.+)$", norm, re.I)
+        arxiv_id = m.group(1) if m else None
+    if arxiv_id:
+        candidates.append("https://arxiv.org/pdf/" + arxiv_id)
+    doi = item.get("DOI") or (norm if kind == "doi" else "")
+    candidates.extend(pdf_resolver.unpaywall_pdf_urls(
+        doi, cfg.unpaywall_email, cfg.download_timeout_sec))
+    for url in candidates[:5]:
+        data = pdf_resolver.fetch_pdf_bytes(url, cfg)
+        if data:
+            state.record_download()
+            return data, url, ""
+        time.sleep(max(0.0, cfg.request_delay_sec))
+    return None, "", "no open-access PDF found" if candidates else "no PDF source known"
+
+
 def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                     dry_run: bool = False,
-                    force: bool = False) -> List[Dict[str, Any]]:
+                    force: bool = False,
+                    attach_pdf: bool = True) -> List[Dict[str, Any]]:
     """Resolve each identifier and save it to Zotero. Returns per-identifier results."""
     results: List[Dict[str, Any]] = []
     doi_map = state.doi_map()
     arxiv_map = state.arxiv_map()
+    # state.db only knows what the daemon has already seen; Zotero's own DB is
+    # the source of truth (an item added in the last hours, or while the daemon
+    # was off, is invisible to state.db and would be saved twice).
+    zdoi, zarxiv = _zotero_identifier_maps(cfg)
+    for k, v in zdoi.items():
+        doi_map.setdefault(k, v)
+    for k, v in zarxiv.items():
+        arxiv_map.setdefault(k, v)
     ignored = {} if force else state.ignored_identifiers()
     for raw in identifiers:
         kind, norm = classify_identifier(raw)
@@ -389,8 +529,12 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
             dup = None
             if kind == "doi":
                 dup = doi_map.get(norm.lower())
+                m_ax = re.match(r"^10\.48550/arxiv\.(.+)$", norm, re.I)
+                if not dup and m_ax:
+                    dup = arxiv_map.get(_strip_ver(m_ax.group(1)))
             elif kind == "arxiv":
-                dup = arxiv_map.get(norm.lower().split("v")[0])
+                dup = arxiv_map.get(_strip_ver(norm)) \
+                    or doi_map.get("10.48550/arxiv." + _strip_ver(norm))
             if dup:
                 res.update(status="duplicate", citekey=dup,
                            message="already in library as {}".format(dup))
@@ -423,26 +567,47 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 res.update(status="error", message="resolver returned no title")
                 results.append(res)
                 continue
-            # No `attachments` hint is sent here (v0.9.1 tried this; v0.9.8
-            # live-tested it via Zotero's own debug log — the local connector
-            # discards any attachment on a saveItems call from an external
-            # script: "Translate: Ignoring attachment due to
-            # ATTACHMENT_MODE_IGNORE", a hardcoded ItemSaver mode, not a
-            # preference or a payload-format issue. The daemon's own
-            # pdf_resolver.resolve() still fetches the PDF into ZotVault's
-            # own cache (~/.zotvault/pdfs/) on the next pipeline cycle; it
-            # just can't land inside the Zotero item itself over this
-            # channel. See README "PDF resolution, politely".)
+            # PDFs never travel inside the saveItems payload: the local connector
+            # runs that call in ATTACHMENT_MODE_IGNORE (confirmed v0.9.8 in
+            # Zotero's debug log), so any `attachments` entry is discarded.
+            # The browser connector gets its PDF in by a second call in the
+            # same save session (/connector/saveAttachment); so do we.
             if dry_run:
                 res.update(status="resolved", message="dry-run: not saved")
                 results.append(res)
                 continue
-            ok, msg = save_items_to_zotero([item], cfg.connector_url)
-            if ok:
-                res.update(status="added", message="saved to Zotero")
-                state.trace("zotero_added", norm, res["title"][:120])
-            else:
+            want_pdf = attach_pdf and cfg.resolve_pdfs
+            pdf, pdf_src, pdf_note = (None, "", "")
+            if want_pdf:
+                # fetch first: nothing slow may sit between save and upload
+                pdf, pdf_src, pdf_note = fetch_pdf_for_add(kind, norm, item, cfg, state)
+            item["id"] = _PARENT_ID
+            sid = uuid.uuid4().hex
+            ok, msg = save_items_to_zotero([item], cfg.connector_url, session_id=sid)
+            if not ok:
                 res.update(status="error", message=msg)
+                results.append(res)
+                continue
+            state.trace("zotero_added", norm, res["title"][:120])
+            res.update(status="added", pdf="skipped", message="saved to Zotero")
+            if want_pdf:
+                if pdf:
+                    up_ok, up_msg = attach_pdf_to_saved_item(cfg.connector_url, sid, pdf, pdf_src)
+                    if up_ok:
+                        res.update(pdf="attached", message="saved to Zotero, PDF attached")
+                        state.trace("zotero_pdf_attached", norm, "{} ({} bytes)".format(pdf_src, len(pdf)))
+                    else:
+                        res.update(pdf="failed", message="saved to Zotero; PDF upload failed ({}) -- {}".format(
+                            up_msg, _NO_PDF_HINT))
+                        state.trace("zotero_pdf_failed", norm, up_msg[:200])
+                else:
+                    rs_ok, _ = attach_via_zotero_resolver(cfg.connector_url, sid)
+                    if rs_ok:
+                        res.update(pdf="attached", message="saved to Zotero, PDF attached by Zotero's own resolver")
+                        state.trace("zotero_pdf_attached", norm, "zotero resolver")
+                    else:
+                        res.update(pdf="none", message="saved to Zotero; no PDF attached ({}) -- {}".format(
+                            pdf_note, _NO_PDF_HINT))
         except Exception as exc:
             res.update(status="error", message=str(exc)[:300])
         results.append(res)
