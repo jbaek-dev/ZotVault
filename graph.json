@@ -174,7 +174,7 @@
     },
     {
       "file": "zotvault/pipeline.py",
-      "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records | v0.9.3: reconciliation — user-deleted notes marked note_status='missing' BEFORE item processing (never auto-recreated; _process_item guards on it); Zotero-deleted items were already mark_deleted",
+      "purpose": "run_once orchestration: diff Zotero vs state, per-item note/pdf/state, deletions (vault untouched), analysis detection, vault records | v0.9.3: reconciliation — user-deleted notes marked note_status='missing' BEFORE item processing (never auto-recreated; _process_item guards on it); Zotero-deleted items were already mark_deleted v0.10.0: _relink_changed_citekeys() -- a registered item whose BBT key changed is re-pointed to the note folder of the new key ONLY if that folder already exists (nothing created/rewritten; analysis_done reset so *_analysis.md is re-detected; annotations_hash deliberately untouched so the highlight block is not cleared; missing folder -> trace citekey_changed_no_note once, kv-deduped). Skipped in dry_run and when BBT is unreachable. state.attention_rows hides deleted rows whose note_path a live item uses.",
       "key": [
         "run_once",
         "RunSummary",

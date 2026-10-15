@@ -34,6 +34,7 @@ class RunSummary:
     pdfs_missing: int = 0
     analyses_detected: int = 0
     annotations_updated: int = 0
+    citekeys_relinked: int = 0
     citekey_pending: int = 0
     deleted: int = 0
     errors: int = 0
@@ -49,6 +50,7 @@ class RunSummary:
             or self.pdfs_downloaded
             or self.analyses_detected
             or self.annotations_updated
+            or self.citekeys_relinked
             or self.deleted
         )
 
@@ -70,6 +72,8 @@ class RunSummary:
         )
         if self.annotations_updated:
             base += " ann+{}".format(self.annotations_updated)
+        if self.citekeys_relinked:
+            base += " relinked+{}".format(self.citekeys_relinked)
         return base
 
 
@@ -83,9 +87,15 @@ def _process_item(
 ) -> None:
     prev = state.get_item(item.item_id)
     # --- citekey -----------------------------------------------------------
-    citekey = citekey_map.get(item.item_key) or item.extra_citekey()
-    if not citekey and prev is not None and prev["citekey"]:
+    if prev is not None and prev["citekey"]:
+        # A registered item keeps the key it was registered under. A key that
+        # changed later in Zotero is handled ONLY by _relink_changed_citekeys, which
+        # adopts an existing note or just traces; this path (also taken by items
+        # being retried) must never apply it, or it would create a new note for the
+        # new key and skip the audit trace.
         citekey = prev["citekey"]
+    else:
+        citekey = citekey_map.get(item.item_key) or item.extra_citekey()
     if not citekey:
         retries = (prev["retries"] if prev is not None else 0) + 1
         # 'blocked' after a few tries makes the cause visible (status/dashboard)
@@ -162,6 +172,67 @@ def _process_item(
     )
     if is_new:
         state.trace("item_registered", citekey, "itemKey={} pdf={}".format(item.item_key, pdf_status))
+
+
+def _relink_changed_citekeys(items: List[RawItem], known: set, cfg: Config, state: State,
+                             reader: ZoteroReader, summary: RunSummary) -> None:
+    """Re-point a registered item whose Better BibTeX citekey changed in Zotero.
+
+    Only NEW items used to be looked at, so changing a citekey (e.g. restoring an
+    old one after a duplicate clean-up) left the item bound to the old note forever.
+    Rule: adopt the new key ONLY if its note folder already exists in the vault.
+    Nothing is created or rewritten; if the folder is missing it is just traced
+    (once per key). The note's own header (itemKey, zotero:// link) stays as it
+    was, and annotations_hash is left alone on purpose, so the highlight block of
+    the adopted note is not rewritten or cleared until annotations really change.
+    """
+    if cfg.papers_dir is None or cfg.dry_run:
+        return
+    cands = []
+    for it in items:
+        if it.item_id not in known:
+            continue
+        row = state.get_item(it.item_id)
+        if (row is None or row["deleted"] or row["ignored"]
+                or not row["citekey"] or not row["note_path"]):
+            continue
+        cands.append((it, row))
+    if not cands:
+        return
+    bbt = reader.bbt_citekeys([it.item_key for it, _ in cands])
+    if not bbt:
+        return  # Zotero/BBT not reachable this cycle: try again next time
+    for it, row in cands:
+        new = bbt.get(it.item_key)
+        old = row["citekey"]
+        if not new or new == old:
+            continue
+        if not re.match(r"^[\w.\-]+$", new):
+            state.trace("citekey_invalid", it.item_key, new[:80])
+            continue
+        target = note_renderer.note_path_for(cfg.papers_dir, new)
+        if not target.exists():
+            mark = "citekey_nonote:{}".format(it.item_id)
+            if state.kv_get(mark) != new:
+                state.kv_set(mark, new)
+                state.trace("citekey_changed_no_note", new,
+                            "{} -> {} in Zotero; no note folder for the new key, nothing created "
+                            "(itemKey {})".format(old, new, it.item_key))
+            continue
+        other = state.live_item_using_note(str(target), it.item_id)
+        if other is not None:
+            mark = "citekey_shared:{}".format(it.item_id)
+            if state.kv_get(mark) != new:
+                state.kv_set(mark, new)
+                state.trace("citekey_relink_skipped", new,
+                            "{} -> {}: that note is already used by live item {}; not adopted "
+                            "(itemKey {})".format(old, new, other["item_key"], it.item_key))
+            continue
+        state.upsert_item(it.item_id, citekey=new, note_path=str(target), note_status="existing",
+                          analysis_done=0, analysis_path=None)
+        state.trace("citekey_relinked", new, "{} -> {} (itemKey {}); note adopted as-is".format(
+            old, new, it.item_key))
+        summary.citekeys_relinked += 1
 
 
 def _detect_analyses(cfg: Config, state: State, summary: RunSummary) -> None:
@@ -352,6 +423,7 @@ def run_once(cfg: Config, state: State) -> RunSummary:
             state.trace("item_deleted_in_zotero", row["citekey"] or row["item_key"], "vault untouched")
             summary.deleted += 1
 
+    _relink_changed_citekeys(items, known, cfg, state, reader, summary)
     _detect_analyses(cfg, state, summary)
     _sync_annotations(ann_map, cfg, state, summary)
     _update_vault_records(cfg, state, summary, backfill)

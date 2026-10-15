@@ -161,12 +161,22 @@ class State:
         missing = self.conn.execute(
             "SELECT * FROM items WHERE deleted=0 AND ignored=0 AND note_status='missing' "
             "ORDER BY citekey").fetchall()
+        # A deleted item whose note a LIVE item now uses (same citekey reused, or an
+        # old key restored) has nothing left to act on, so it is not listed.
         vault_only = self.conn.execute(
             "SELECT * FROM items WHERE deleted=1 AND ignored=0 AND note_path IS NOT NULL "
+            "AND note_path NOT IN (SELECT note_path FROM items "
+            "                      WHERE deleted=0 AND note_path IS NOT NULL) "
             "ORDER BY citekey").fetchall()
         ignored = self.conn.execute(
             "SELECT * FROM items WHERE ignored=1 ORDER BY citekey").fetchall()
         return {"missing": missing, "vault_only": vault_only, "ignored": ignored}
+
+    def live_item_using_note(self, note_path: str, exclude_item_id: int) -> Optional[sqlite3.Row]:
+        """Another non-deleted item already bound to this note file, if any."""
+        return self.conn.execute(
+            "SELECT * FROM items WHERE deleted=0 AND note_path=? AND item_id!=? LIMIT 1",
+            (note_path, exclude_item_id)).fetchone()
 
     def item_by_key(self, item_key: str) -> Optional[sqlite3.Row]:
         return self.conn.execute(

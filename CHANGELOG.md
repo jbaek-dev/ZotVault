@@ -21,6 +21,21 @@
   Find Available PDF. `--no-pdf` is back and now really skips the PDF.
   (The earlier draft of this release claimed this was impossible. That
   conclusion came from testing `saveItems` alone.)
+- A registered item whose Better BibTeX citekey changes in Zotero is now re-pointed
+  to the note folder of the new key, if that folder already exists. Until now only
+  new items were ever looked at, so restoring an old key (for instance after a
+  duplicate clean-up deleted the item that carried your analysis) left the item
+  bound to the empty copy forever. The note is adopted as-is: nothing is created,
+  rewritten or removed, the analysis in the folder is re-detected, and the
+  highlight block is not touched until annotations actually change. If the new
+  key has no note folder, or the folder already belongs to another live item,
+  nothing is created or adopted and the change is only traced (once). A registered
+  item now keeps its stored key in the per-item path (also used when an item is
+  being retried), so a changed key can no longer create a new note there.
+  The adopted note keeps its original `itemKey` / `zotero://` link in its header,
+  which still point at the deleted item (existing notes are never rewritten).
+- The "Needs attention" list no longer shows a deleted item whose note a live item
+  now uses (same key reused or restored), since there is nothing left to act on.
 - `add` now checks Zotero's own database for an existing DOI/arXiv id across
   every regular item type, not just ZotVault's `state.db` (which only knows the
   item types the pipeline makes notes for). Found while testing: a paper that

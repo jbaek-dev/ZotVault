@@ -288,3 +288,147 @@ class TestZoteroOnlyMode(unittest.TestCase):
         self.assertEqual(len(vault_rows), 1)
         self.assertIn("(optional", vault_rows[0][0])
         self.assertIn("Zotero-only", vault_rows[0][2])
+
+
+class TestCitekeyRelink(unittest.TestCase):
+    """A registered item whose Better BibTeX key changes in Zotero (e.g. an old
+    key restored after a duplicate clean-up) is re-pointed to the note folder of
+    the new key, but ONLY if that folder already exists. Nothing is created or
+    rewritten, and the old binding is never left half-updated."""
+
+    tearDown = TestPipelineE2E.tearDown
+    setUp = TestPipelineE2E.setUp
+
+    PAPERS = "30_Resources/Papers/zotero"
+
+    def _run(self, citekeys):
+        """Like the E2E helper, but PDF status is settled ('missing'), as for a
+        steady-state library. With the E2E default (pdf 'disabled') every item
+        is re-tried each cycle, which would apply a new key through the old
+        per-item path and hide what the relink step does."""
+        with mock.patch("zotvault.zotero_reader.ZoteroReader.bbt_citekeys", return_value=citekeys), \
+             mock.patch("zotvault.pipeline.pdf_resolver.resolve", return_value=("missing", None)):
+            state = State(self.cfg.state_db)
+            try:
+                return run_once(self.cfg, state)
+            finally:
+                state.close()
+
+    def _bump_zotero_db(self):
+        """A key edit in Zotero modifies zotero.sqlite; mimic that so the
+        'DB unchanged' fast-skip does not hide the change."""
+        import os
+        import time
+        p = self.zdir / "zotero.sqlite"
+        t = time.time() + 30 * getattr(self, "_bumps", 1)
+        self._bumps = getattr(self, "_bumps", 1) + 1
+        os.utime(str(p), (t, t))
+
+    def _row(self, item_key):
+        state = State(self.cfg.state_db)
+        try:
+            return state.item_by_key(item_key)
+        finally:
+            state.close()
+
+    def _traces(self, action):
+        state = State(self.cfg.state_db)
+        try:
+            return [r for r in state.conn.execute(
+                "SELECT * FROM trace WHERE action=?", (action,))]
+        finally:
+            state.close()
+
+    def _old_note(self, key, analysis=True):
+        d = self.vault / self.PAPERS / key
+        d.mkdir(parents=True)
+        (d / (key + ".md")).write_text("OLD NOTE BODY — mine\n", encoding="utf-8")
+        if analysis:
+            (d / (key + "_claude_analysis.md")).write_text("analysis\n", encoding="utf-8")
+        return d
+
+    def test_restored_key_adopts_existing_note_and_its_analysis(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        newer = self.vault / self.PAPERS / "One2026a"
+        self.assertTrue((newer / "One2026a.md").exists())
+        old = self._old_note("One2026")
+        self._bump_zotero_db()
+        s = self._run({"AAA10": "One2026", "BBB11": "Two2026"})
+        row = self._row("AAA10")
+        self.assertEqual(row["citekey"], "One2026")
+        self.assertTrue(row["note_path"].endswith("One2026/One2026.md"))
+        self.assertEqual(row["note_status"], "existing")
+        self.assertEqual(row["analysis_done"], 1)  # re-detected in the adopted folder
+        self.assertEqual(s.citekeys_relinked, 1)
+        self.assertEqual(s.notes_created, 0)
+        # nothing rewritten, nothing removed
+        self.assertEqual((old / "One2026.md").read_text(encoding="utf-8"), "OLD NOTE BODY — mine\n")
+        self.assertTrue((newer / "One2026a.md").exists())
+        self.assertEqual(len(self._traces("citekey_relinked")), 1)
+
+    def test_unchanged_key_is_left_alone(self):
+        self._run({"AAA10": "One2026", "BBB11": "Two2026"})
+        self._bump_zotero_db()
+        s = self._run({"AAA10": "One2026", "BBB11": "Two2026"})
+        self.assertEqual(s.citekeys_relinked, 0)
+        self.assertEqual(self._traces("citekey_relinked"), [])
+
+    def test_new_key_without_a_note_folder_creates_nothing_and_traces_once(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        for _ in range(3):
+            self._bump_zotero_db()
+            s = self._run({"AAA10": "Brand2026", "BBB11": "Two2026"})
+            self.assertEqual(s.citekeys_relinked, 0)
+        self.assertFalse((self.vault / self.PAPERS / "Brand2026").exists())
+        self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
+        self.assertEqual(len(self._traces("citekey_changed_no_note")), 1)  # not every cycle
+
+    def test_dry_run_changes_nothing(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        self._old_note("One2026")
+        self._bump_zotero_db()
+        self.cfg.dry_run = True
+        s = self._run({"AAA10": "One2026", "BBB11": "Two2026"})
+        self.assertEqual(s.citekeys_relinked, 0)
+        self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
+
+    def test_unreachable_bbt_is_not_treated_as_a_change(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        self._old_note("One2026")
+        self._bump_zotero_db()
+        with mock.patch("zotvault.zotero_reader.ZoteroReader.zotero_alive", return_value=False):
+            s = self._run({})  # BBT/Zotero down this cycle (no real ping)
+        self.assertEqual(s.citekeys_relinked, 0)
+        self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
+
+    def test_attention_hides_deleted_row_whose_note_a_live_item_now_uses(self):
+        state = State(self.cfg.state_db)
+        try:
+            shared = str(self.vault / self.PAPERS / "Shared2026" / "Shared2026.md")
+            own = str(self.vault / self.PAPERS / "Orphan2026" / "Orphan2026.md")
+            state.upsert_item(1, item_key="LIVE1", citekey="Shared2026", note_path=shared, deleted=0)
+            state.upsert_item(2, item_key="GONE2", citekey="Shared2026", note_path=shared, deleted=1)
+            state.upsert_item(3, item_key="GONE3", citekey="Orphan2026", note_path=own, deleted=1)
+            keys = [r["item_key"] for r in state.attention_rows()["vault_only"]]
+        finally:
+            state.close()
+        self.assertEqual(keys, ["GONE3"])
+
+    def test_never_adopts_a_note_already_used_by_another_live_item(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        before = self._row("AAA10")["note_path"]
+        for _ in range(2):
+            self._bump_zotero_db()
+            s = self._run({"AAA10": "Two2026", "BBB11": "Two2026"})  # collides with BBB11
+            self.assertEqual(s.citekeys_relinked, 0)
+        self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
+        self.assertEqual(self._row("AAA10")["note_path"], before)
+        self.assertEqual(len(self._traces("citekey_relink_skipped")), 1)  # once, not per cycle
+
+
+class TestCitekeyRelinkWhileRetrying(TestCitekeyRelink):
+    """Same behaviour when every item is also being RETRIED each cycle (E2E
+    default: pdf 'disabled'; in real life pdf 'pending'/'deferred'/'error').
+    The old per-item path must not apply a changed key or create a note."""
+
+    _run = TestPipelineE2E._run
