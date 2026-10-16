@@ -111,8 +111,15 @@ def refresh(cfg: Config, state: State, budget: Optional[int] = None) -> int:
     return done
 
 
-def load_vectors(state: State, model: str) -> Dict[str, List[float]]:
-    return {r["citekey"]: blob_to_vec(r["vec"]) for r in state.emb_all(model)}
+def load_vectors(state: State, model: str,
+                 papers_dir: Optional[Path] = None) -> Dict[str, List[float]]:
+    """Stored vectors by citekey. With papers_dir, only papers whose note folder
+    is still in the vault: vectors are kept by citekey, so a folder that was
+    archived or renamed would otherwise linger as a dangling [[link]]."""
+    vecs = {r["citekey"]: blob_to_vec(r["vec"]) for r in state.emb_all(model)}
+    if papers_dir is not None:
+        vecs = {ck: v for ck, v in vecs.items() if (Path(papers_dir) / ck).is_dir()}
+    return vecs
 
 
 def top_similar(citekey: str, vectors: Dict[str, List[float]], k: int = 5,
@@ -126,7 +133,7 @@ def top_similar(citekey: str, vectors: Dict[str, List[float]], k: int = 5,
 
 
 def related_for(citekey: str, cfg: Config, state: State) -> Any:
-    vectors = load_vectors(state, cfg.ollama_embed_model)
+    vectors = load_vectors(state, cfg.ollama_embed_model, cfg.papers_dir)
     if citekey not in vectors:
         return {"error": "no embedding for {} — run `zotvault enrich` first".format(citekey)}
     return [{"citekey": c, "score": s}
@@ -140,7 +147,7 @@ def note_path(cfg: Config) -> Optional[Path]:
 
 
 def render_note(cfg: Config, state: State) -> str:
-    vectors = load_vectors(state, cfg.ollama_embed_model)
+    vectors = load_vectors(state, cfg.ollama_embed_model, cfg.papers_dir)
     lines = [
         "---",
         "type: source",
@@ -172,7 +179,7 @@ def render_note(cfg: Config, state: State) -> str:
 
 def write_note(cfg: Config, state: State) -> bool:
     path = note_path(cfg)
-    if path is None or not load_vectors(state, cfg.ollama_embed_model):
+    if path is None or not load_vectors(state, cfg.ollama_embed_model, cfg.papers_dir):
         return False
     content = render_note(cfg, state)
     if path.exists() and path.read_text(encoding="utf-8") == content:

@@ -230,8 +230,11 @@ def _relink_changed_citekeys(items: List[RawItem], known: set, cfg: Config, stat
             continue
         state.upsert_item(it.item_id, citekey=new, note_path=str(target), note_status="existing",
                           analysis_done=0, analysis_path=None)
-        state.trace("citekey_relinked", new, "{} -> {} (itemKey {}); note adopted as-is".format(
-            old, new, it.item_key))
+        # Citation edges are stored by citekey; move them so the paper keeps its
+        # place in Citation_Graph.md under the new key.
+        edges = state.cite_rekey(old, new)
+        state.trace("citekey_relinked", new, "{} -> {} (itemKey {}); note adopted as-is{}".format(
+            old, new, it.item_key, "; {} citation edge(s) moved".format(edges) if edges else ""))
         summary.citekeys_relinked += 1
 
 

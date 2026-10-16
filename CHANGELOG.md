@@ -36,6 +36,20 @@
   which still point at the deleted item (existing notes are never rewritten).
 - The "Needs attention" list no longer shows a deleted item whose note a live item
   now uses (same key reused or restored), since there is nothing left to act on.
+- `Citation_Graph.md` and `Related_Suggestions.md` no longer keep links to papers
+  that are gone. Citation edges and embeddings are stored by citekey and were
+  never cleaned up, so a deleted item, a re-keyed one, or a note folder moved out
+  of the vault left dangling `[[links]]` there for good (enrichment only fetches
+  items it has never seen). Now the citation graph lists only live items, related
+  suggestions (and synthesis clusters) only papers whose note folder is still in
+  the vault, a citekey relink carries the paper's edges over to the new key, and
+  an existing `Citation_Graph.md` is re-rendered on every enrich run even when
+  nothing new was fetched (it is still only created by a first real enrichment).
+  Rendering filters stored rows without deleting them. Moving edges on a relink
+  drops only the rows the merge makes redundant (an edge that already exists
+  under the new key, or a paper citing its own re-keyed duplicate).
+  Embeddings are not re-keyed: they are computed per note folder, so the new
+  key's folder has (or gets) its own vector.
 - `add` now checks Zotero's own database for an existing DOI/arXiv id across
   every regular item type, not just ZotVault's `state.db` (which only knows the
   item types the pipeline makes notes for). Found while testing: a paper that

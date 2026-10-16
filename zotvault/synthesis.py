@@ -90,7 +90,7 @@ def label_for(citekeys: List[str], titles: Dict[str, str]) -> str:
 
 
 def suggest(cfg: Config, state: State, write_note: bool = False) -> List[Dict[str, Any]]:
-    vectors = related.load_vectors(state, cfg.ollama_embed_model)
+    vectors = related.load_vectors(state, cfg.ollama_embed_model, cfg.papers_dir)
     if not vectors:
         return []
     covered = covered_citekeys(cfg)

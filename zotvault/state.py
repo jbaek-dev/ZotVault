@@ -357,6 +357,23 @@ class State:
     def cite_edges(self) -> List[sqlite3.Row]:
         return list(self.conn.execute("SELECT citing, cited FROM citations ORDER BY citing, cited"))
 
+    def cite_rekey(self, old: str, new: str) -> int:
+        """Carry a paper's edges over when its citekey changes (edges are stored
+        by citekey). Edges that already exist under the new key win; leftovers
+        under the old key and self-citations created by the merge are dropped.
+        Returns the number of edges moved."""
+        if not old or not new or old == new:
+            return 0
+        moved = 0
+        for col in ("citing", "cited"):
+            cur = self.conn.execute(
+                "UPDATE OR IGNORE citations SET {0}=? WHERE {0}=?".format(col), (new, old))
+            moved += cur.rowcount
+            self.conn.execute("DELETE FROM citations WHERE {}=?".format(col), (old,))
+        self.conn.execute("DELETE FROM citations WHERE citing=cited")
+        self.conn.commit()
+        return moved
+
     # -- proxy download budget (separate, stricter) ----------------------------------
     def proxy_downloads_today(self) -> int:
         return int(self.kv_get("proxy_dl_" + _today(), "0") or "0")

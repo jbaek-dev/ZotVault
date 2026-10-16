@@ -366,6 +366,25 @@ class TestCitekeyRelink(unittest.TestCase):
         self.assertTrue((newer / "One2026a.md").exists())
         self.assertEqual(len(self._traces("citekey_relinked")), 1)
 
+    def test_relink_carries_citation_edges_to_the_new_key(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        state = State(self.cfg.state_db)
+        try:
+            state.cite_replace("One2026a", ["Two2026"])
+            state.cite_replace("Two2026", ["One2026a"])
+        finally:
+            state.close()
+        self._old_note("One2026")
+        self._bump_zotero_db()
+        self._run({"AAA10": "One2026", "BBB11": "Two2026"})
+        state = State(self.cfg.state_db)
+        try:
+            edges = [(e["citing"], e["cited"]) for e in state.cite_edges()]
+        finally:
+            state.close()
+        self.assertEqual(sorted(edges), [("One2026", "Two2026"), ("Two2026", "One2026")])
+        self.assertIn("2 citation edge(s) moved", self._traces("citekey_relinked")[0]["detail"])
+
     def test_unchanged_key_is_left_alone(self):
         self._run({"AAA10": "One2026", "BBB11": "Two2026"})
         self._bump_zotero_db()

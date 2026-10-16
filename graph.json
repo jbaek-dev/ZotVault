@@ -53,8 +53,8 @@
         "trace": "append-only audit of every automatic action",
         "downloads": "per-day OA download counter (budget)",
         "alerts": "arXiv digest inbox: arxiv_id, title, matched, status pending|approved|dismissed|added",
-        "embeddings": "citekey -> float32 blob (Ollama nomic-embed-text), src_mtime for staleness",
-        "citations": "in-library edges citekey->citekey (from Semantic Scholar references)"
+        "embeddings": "citekey -> float32 blob (Ollama nomic-embed-text), src_mtime for staleness; never pruned, so readers pass papers_dir to keep only folders still in the vault",
+        "citations": "in-library edges citekey->citekey (from Semantic Scholar references); re-keyed on citekey relink (cite_rekey), rendered only between live items"
       }
     },
     "pdf_dir": "~/.zotvault/pdfs/<citekey>.pdf (ZotVault-downloaded PDFs; NEVER writes into Zotero storage/)",
@@ -231,7 +231,7 @@
     },
     {
       "file": "zotvault/enrich.py",
-      "purpose": "Semantic Scholar citationCount + in-library citation edges; Citation_Graph.md regeneration",
+      "purpose": "Semantic Scholar citationCount + in-library citation edges; Citation_Graph.md regeneration (existing note re-rendered every run, live items only)",
       "key": [
         "run",
         "s2_fetch",

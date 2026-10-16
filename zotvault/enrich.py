@@ -49,6 +49,7 @@ def run(cfg: Config, state: State, limit: Optional[int] = None) -> int:
     budget = limit or cfg.enrich_budget_per_run
     rows = state.items_for_enrich(budget)
     if not rows:
+        _refresh_existing_note(cfg, state)
         return 0
     doi_map = state.doi_map()
     arxiv_map = state.arxiv_map()
@@ -93,7 +94,18 @@ def run(cfg: Config, state: State, limit: Optional[int] = None) -> int:
     if done:
         state.trace("enrich_run", "", "{} item(s) enriched".format(done))
         write_citation_graph_note(cfg, state)
+    else:
+        _refresh_existing_note(cfg, state)
     return done
+
+
+def _refresh_existing_note(cfg: Config, state: State) -> None:
+    """Re-render an existing Citation_Graph.md even when nothing new was fetched,
+    so deleted papers and changed citekeys drop out of it. Never creates the note
+    (that still takes a first successful enrichment); a no-op if unchanged."""
+    path = note_path(cfg)
+    if path is not None and path.exists():
+        write_citation_graph_note(cfg, state)
 
 
 def note_path(cfg: Config) -> Optional[Path]:
@@ -103,13 +115,15 @@ def note_path(cfg: Config) -> Optional[Path]:
 
 
 def render_citation_graph(state: State) -> str:
-    edges = state.cite_edges()
+    items = {r["citekey"]: r for r in state.all_items() if r["citekey"]}
+    # Edges are stored by citekey and outlive their papers: a deleted item or a
+    # key that was later changed would otherwise leave dangling [[links]].
+    edges = [e for e in state.cite_edges() if e["citing"] in items and e["cited"] in items]
     cites: Dict[str, List[str]] = {}
     cited_by: Dict[str, List[str]] = {}
     for e in edges:
         cites.setdefault(e["citing"], []).append(e["cited"])
         cited_by.setdefault(e["cited"], []).append(e["citing"])
-    items = {r["citekey"]: r for r in state.all_items() if r["citekey"]}
     top = sorted(
         (r for r in items.values() if r["citation_count"] is not None),
         key=lambda r: -(r["citation_count"] or 0),
