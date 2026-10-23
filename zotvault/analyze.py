@@ -30,6 +30,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import urllib.request
 from pathlib import Path
@@ -148,15 +149,20 @@ def _gen_claude_cli(prompt: str, cfg: Config) -> str:
     if shutil.which("claude") is None:
         raise ValueError("claude CLI not found — install Claude Code or pick another engine")
     # Pass the prompt on stdin (no temp file, no "read this file and follow
-    # instructions" wording) and disable all tools so a prompt-injected paper
-    # cannot make the CLI touch the filesystem or run commands.
-    cmd = ["claude", "-p", "--allowedTools", ""]
+    # instructions" wording) and give the CLI NO tools, so a prompt-injected
+    # paper cannot make it read files, run commands or call connectors.
+    # `--tools ""` removes every built-in tool; `--allowedTools ""` would NOT
+    # (it only adds allow rules, and the user's own rules such as Bash(*) still
+    # apply). `--strict-mcp-config` with no --mcp-config loads no MCP servers.
+    # An older CLI without these flags exits non-zero: we fail closed.
+    cmd = ["claude", "-p", "--tools", "", "--strict-mcp-config"]
     if cfg.analysis_model:
         cmd += ["--model", cfg.analysis_model]
-    out = subprocess.run(
-        cmd, input=prompt.encode("utf-8"),
-        capture_output=True, timeout=cfg.analysis_timeout_sec,
-    )
+    with tempfile.TemporaryDirectory(prefix="zotvault_cli_") as empty_cwd:
+        out = subprocess.run(
+            cmd, input=prompt.encode("utf-8"), cwd=empty_cwd,
+            capture_output=True, timeout=cfg.analysis_timeout_sec,
+        )
     if out.returncode != 0:
         raise RuntimeError("claude CLI exit {}: {}".format(
             out.returncode, out.stderr.decode("utf-8", errors="replace")[:200]))

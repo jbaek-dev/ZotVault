@@ -23,6 +23,10 @@ from zotvault.zotero_reader import RawItem, ZoteroReader
 
 log = logging.getLogger("zotvault.pipeline")
 
+# Citekeys become folder and file names. Word characters, dots and dashes only,
+# and no leading dot: "." / ".." would point a note outside its own folder.
+_SAFE_CITEKEY_RE = re.compile(r"^(?!\.)[\w.\-]+$")
+
 
 @dataclass
 class RunSummary:
@@ -119,7 +123,7 @@ def _process_item(
         summary.citekey_pending += 1
         return
     # citekeys become folder/file names — refuse anything filesystem-unsafe
-    if not re.match(r"^[\w.\-]+$", citekey):
+    if not _SAFE_CITEKEY_RE.match(citekey):
         state.upsert_item(
             item.item_id, item_key=item.item_key, title=item.title,
             note_status="error", last_error="unsafe citekey: " + citekey[:80],
@@ -207,7 +211,7 @@ def _relink_changed_citekeys(items: List[RawItem], known: set, cfg: Config, stat
         old = row["citekey"]
         if not new or new == old:
             continue
-        if not re.match(r"^[\w.\-]+$", new):
+        if not _SAFE_CITEKEY_RE.match(new):
             state.trace("citekey_invalid", it.item_key, new[:80])
             continue
         target = note_renderer.note_path_for(cfg.papers_dir, new)

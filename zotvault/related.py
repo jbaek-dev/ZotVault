@@ -13,6 +13,7 @@ import datetime as _dt
 import json
 import logging
 import math
+import urllib.error
 import urllib.request
 from array import array
 from pathlib import Path
@@ -31,6 +32,7 @@ AUTO_HEADER = (
 )
 
 _MAX_CHARS = 6000
+_MIN_CHARS = 750   # give up below this (a note that short should always fit)
 
 
 def vec_to_blob(vec: List[float]) -> bytes:
@@ -54,10 +56,34 @@ def cosine(a: List[float], b: List[float]) -> float:
     return dot / (na * nb)
 
 
+class InputTooLong(ValueError):
+    """Ollama refused the text as longer than the model's context window."""
+
+
 def ollama_embed(text: str, cfg: Config, timeout: int = 60) -> List[float]:
+    """Embed `text`; on a context-length refusal retry with half the text
+    (formula-dense notes run out of tokens well before _MAX_CHARS)."""
+    n = _MAX_CHARS
+    while True:
+        try:
+            return _ollama_embed_once(text[:n], cfg, timeout)
+        except urllib.error.HTTPError as exc:
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            if "context length" not in body:
+                raise
+            if n <= _MIN_CHARS:
+                raise InputTooLong(body[:200])
+            n = max(_MIN_CHARS, n // 2)
+
+
+def _ollama_embed_once(text: str, cfg: Config, timeout: int) -> List[float]:
     payload = json.dumps({
         "model": cfg.ollama_embed_model,
-        "prompt": text[:_MAX_CHARS],
+        "prompt": text,
     }).encode("utf-8")
     req = urllib.request.Request(
         cfg.ollama_url + "/api/embeddings",
@@ -99,6 +125,16 @@ def refresh(cfg: Config, state: State, budget: Optional[int] = None) -> int:
         try:
             text = src.read_text(encoding="utf-8", errors="replace")
             vec = ollama_embed(text, cfg)
+        except InputTooLong as exc:
+            # This note alone does not fit; skip it and keep going. Until now one
+            # such note stopped the whole refresh, every run, for every note after it.
+            mark = "embed_toolong:" + entry.citekey
+            if state.kv_get(mark) != str(mtime):
+                state.kv_set(mark, str(mtime))
+                state.trace("embed_skipped", entry.citekey,
+                            "too long for {} even when shortened: {}".format(
+                                cfg.ollama_embed_model, str(exc)[:120]))
+            continue
         except Exception as exc:
             log.info("embeddings unavailable (%s) — skipping related-paper refresh", exc)
             state.trace("embed_unavailable", entry.citekey, str(exc)[:200])

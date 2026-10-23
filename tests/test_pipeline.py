@@ -108,6 +108,20 @@ class TestPipelineE2E(unittest.TestCase):
         # log.md got an English entry
         self.assertIn("ZotVault", (self.vault / "log.md").read_text(encoding="utf-8"))
 
+    def test_dot_citekey_refused_and_nothing_written_outside(self):
+        papers = self.vault / "30_Resources/Papers"
+        before = sorted(p.name for p in papers.iterdir())
+        s = self._run({"AAA10": "..", "BBB11": "Two2026"})
+        self.assertEqual(s.notes_created, 1)
+        self.assertEqual(sorted(p.name for p in papers.iterdir()), before)
+        state = State(self.cfg.state_db)
+        try:
+            row = state.item_by_key("AAA10")
+        finally:
+            state.close()
+        self.assertEqual(row["note_status"], "error")
+        self.assertIn("unsafe citekey", row["last_error"])
+
     def test_non_bbt_blocks(self):
         s = self._run({})  # no citekeys -> blocked after retries
         self.assertEqual(s.notes_created, 0)

@@ -136,7 +136,11 @@
 <div id="toast"></div>
 <script>
 const $ = id => document.getElementById(id);
-const esc = s => (s||"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc = s => String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// A value passed as a JS argument inside an onclick="…" attribute: the browser
+// decodes HTML entities BEFORE running the handler, so esc() alone cannot keep a
+// quote from closing the string. JSON-encode it first, then escape for the attribute.
+const jsArg = v => esc(JSON.stringify(String(v??"")));
 let lastResults = [];
 let cart = new Map(); // best_identifier -> SearchResult, survives across searches until add/clear
 
@@ -341,7 +345,7 @@ async function refreshAttention(){
     const a = await api("/api/attention");
     const row = (r, btns) => `<div style="padding:4px 0"><b>${esc(r.citekey)}</b>
       <span class="muted">${esc(r.title)}</span> ${btns.map(([label,act,tip]) =>
-      `<button class="ghost small" title="${tip}" onclick="attnAction('${r.item_key}','${act}')">${label}</button>`).join(" ")}</div>`;
+      `<button class="ghost small" title="${tip}" onclick="attnAction(${jsArg(r.item_key)},${jsArg(act)})">${label}</button>`).join(" ")}</div>`;
     let html = "";
     if(a.missing.length)
       html += `<div class="muted" style="margin:4px 0">In Zotero, but the vault note was deleted:</div>` +

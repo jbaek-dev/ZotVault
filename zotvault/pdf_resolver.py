@@ -30,6 +30,7 @@ _ARXIV_DOI_RE = re.compile(r"^10\.48550/arxiv\.(.+)$", re.I)
 _ARXIV_EXTRA_RE = re.compile(r"arXiv:\s*([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)", re.I)
 
 _MIN_PDF_BYTES = 10_000
+_MAX_PDF_BYTES = 100 * 1024 * 1024  # same hard cap as proxy.py
 
 
 def _ua(cfg: Config) -> str:
@@ -73,12 +74,20 @@ def unpaywall_pdf_urls(doi: str, email: str, timeout: int) -> List[str]:
 
 
 def fetch_pdf_bytes(url: str, cfg: Config) -> Optional[bytes]:
-    """GET `url`; return the body only if it really is a PDF."""
+    """GET `url`; return the body only if it really is a PDF.
+
+    Only http(s): the URL comes from outside (Unpaywall, arXiv), and urllib
+    would also open file:// or ftp://. Bodies over _MAX_PDF_BYTES are refused
+    rather than read into memory."""
+    if urllib.parse.urlsplit(url).scheme.lower() not in ("http", "https"):
+        return None
     req = urllib.request.Request(url, headers={"User-Agent": _ua(cfg), "Accept": "application/pdf,*/*"})
     try:
         with urllib.request.urlopen(req, timeout=cfg.download_timeout_sec) as resp:
-            data = resp.read()
+            data = resp.read(_MAX_PDF_BYTES + 1)
     except Exception:
+        return None
+    if len(data) > _MAX_PDF_BYTES:
         return None
     if len(data) < _MIN_PDF_BYTES or not data[:8].lstrip().startswith(b"%PDF"):
         return None

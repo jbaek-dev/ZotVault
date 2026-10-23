@@ -2,6 +2,36 @@
 
 ## 0.10.0 — Unreleased (PDF lands inside Zotero)
 
+### Security
+
+- **`claude-cli` analysis engine: tools were not actually disabled.** It ran
+  `claude -p --allowedTools ""`, but `--allowedTools` only adds allow rules; it
+  does not remove tools, and the user's own rules still applied. With a broad
+  rule such as `Bash(*)` in your Claude Code settings, text planted in a paper
+  (prompt injection) could have made the analysis step run shell commands. We
+  confirmed this with a harmless canary command. It now runs with
+  `--tools ""` (no built-in tools), `--strict-mcp-config` (no MCP servers) and
+  an empty temporary working directory; the same canary test then reports no
+  tools. A Claude Code too old for `--tools` makes the analysis fail rather
+  than run unprotected. Affects only `[analysis] engine = "claude-cli"`
+  (default is `none`). If you used it, update.
+- The PDF fetcher opens only `http(s)` URLs (urllib would also follow
+  `file://` or `ftp://` from an Unpaywall/arXiv answer) and refuses bodies over
+  100 MB instead of reading them into memory (the proxy path already did).
+- Citekeys starting with a dot (`.`, `..`, `.hidden`) are refused as folder
+  names; `..` would have placed a note one level above the papers folder.
+- Dashboard: the escaping helper now also escapes `'`, and the item key in the
+  "Needs attention" buttons is JSON-encoded before it goes into `onclick`
+  (HTML escaping alone cannot protect a JavaScript string there).
+
+### Fixes and features
+- Related-paper embeddings no longer stall. A note longer than the embedding
+  model's context made Ollama answer HTTP 500, and the refresh stopped at that
+  note on every run, so every note after it was never embedded (here: 101 of
+  296 notes, for weeks). The text is now halved and retried on a context-length
+  refusal; a note that still does not fit is skipped and traced once, and the
+  refresh continues. Ollama being down still stops the run as before.
+
 - `zotvault add` (and approving an alert, and the dashboard's Add) now puts
   the open-access PDF inside the Zotero item. Zotero's local connector runs
   `saveItems` in `ATTACHMENT_MODE_IGNORE`, so an `attachments` hint is always
