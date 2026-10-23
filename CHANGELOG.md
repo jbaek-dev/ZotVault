@@ -11,10 +11,11 @@
   (prompt injection) could have made the analysis step run shell commands. We
   confirmed this with a harmless canary command. It now runs with
   `--tools ""` (no built-in tools), `--strict-mcp-config` (no MCP servers) and
-  an empty temporary working directory; the same canary test then reports no
-  tools. A Claude Code too old for `--tools` makes the analysis fail rather
+  an empty temporary working directory; the same canary test then finds no
+  tool that can touch the machine. A Claude Code too old for `--tools` makes the analysis fail rather
   than run unprotected. Affects only `[analysis] engine = "claude-cli"`
-  (default is `none`). If you used it, update.
+  (default is `none`), in every published version (0.9.1 to 0.9.7; the flag
+  was added in 0.7.0). If you used it, update.
 - The PDF fetcher opens only `http(s)` URLs (urllib would also follow
   `file://` or `ftp://` from an Unpaywall/arXiv answer) and refuses bodies over
   100 MB instead of reading them into memory (the proxy path already did).
