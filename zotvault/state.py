@@ -80,6 +80,7 @@ _MIGRATIONS = [
     "ALTER TABLE items ADD COLUMN annotations_hash TEXT",
     "ALTER TABLE alerts ADD COLUMN score REAL",
     "ALTER TABLE alerts ADD COLUMN reason TEXT",
+    "ALTER TABLE embeddings ADD COLUMN prep INTEGER DEFAULT 0",
 ]
 
 
@@ -333,12 +334,17 @@ class State:
         return self.conn.execute(
             "SELECT * FROM embeddings WHERE citekey=?", (citekey,)).fetchone()
 
-    def emb_set(self, citekey: str, model: str, dim: int, vec: bytes, src_mtime: float) -> None:
+    def emb_set(self, citekey: str, model: str, dim: int, vec: bytes, src_mtime: float,
+                prep: int = 0) -> None:
+        """`prep` = version of the text preparation the vector was made from, so
+        a change there re-embeds old rows (see related._EMBED_PREP)."""
         self.conn.execute(
-            "INSERT INTO embeddings(citekey,model,dim,vec,src_mtime,updated) VALUES(?,?,?,?,?,?) "
+            "INSERT INTO embeddings(citekey,model,dim,vec,src_mtime,updated,prep) "
+            "VALUES(?,?,?,?,?,?,?) "
             "ON CONFLICT(citekey) DO UPDATE SET model=excluded.model, dim=excluded.dim, "
-            "vec=excluded.vec, src_mtime=excluded.src_mtime, updated=excluded.updated",
-            (citekey, model, dim, vec, src_mtime, _now()),
+            "vec=excluded.vec, src_mtime=excluded.src_mtime, updated=excluded.updated, "
+            "prep=excluded.prep",
+            (citekey, model, dim, vec, src_mtime, _now(), prep),
         )
         self.conn.commit()
 

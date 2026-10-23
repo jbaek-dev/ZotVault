@@ -131,5 +131,30 @@ class TestRelatedNote(_Base):
         self.assertEqual(len(vecs), 3)
 
 
+class TestEmbedPrep(_Base):
+    NOTE = '---\ntype: ai_analysis\nai_model_version: "x"\n---\n\n## Core Summary\nValley physics.\n'
+
+    def test_frontmatter_stripped(self):
+        self.assertEqual(related.embed_text(self.NOTE), "## Core Summary\nValley physics.")
+        self.assertEqual(related.embed_text("no frontmatter\n---\nrule"), "no frontmatter\n---\nrule")
+        self.assertEqual(related.embed_text("---\nunclosed"), "---\nunclosed")
+
+    def test_old_prep_rows_are_re_embedded_with_the_body_only(self):
+        d = self.vault / self.PAPERS / "Paper2020"
+        d.mkdir()
+        (d / "Paper2020.md").write_text(self.NOTE, encoding="utf-8")
+        mtime = (d / "Paper2020.md").stat().st_mtime
+        # a vector made by an older version (prep 0), source unchanged since
+        self.state.emb_set("Paper2020", self.cfg.ollama_embed_model, 2,
+                           related.vec_to_blob([0.0, 1.0]), mtime + 10)
+        seen = []
+        with mock.patch("zotvault.related.ollama_embed",
+                        side_effect=lambda text, cfg: seen.append(text) or [1.0, 0.0]):
+            self.assertEqual(related.refresh(self.cfg, self.state), 1)
+            self.assertEqual(related.refresh(self.cfg, self.state), 0)  # now current
+        self.assertEqual(seen, ["## Core Summary\nValley physics."])
+        self.assertEqual(self.state.emb_get("Paper2020")["prep"], related._EMBED_PREP)
+
+
 if __name__ == "__main__":
     unittest.main()

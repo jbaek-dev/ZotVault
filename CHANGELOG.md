@@ -31,6 +31,11 @@
   296 notes, for weeks). The text is now halved and retried on a context-length
   refusal; a note that still does not fit is skipped and traced once, and the
   refresh continues. Ollama being down still stops the run as before.
+  Notes are now embedded without their YAML frontmatter: about 1 KB of nearly
+  identical metadata (model, input basis, tags) at the top made the vectors of
+  shortened notes look alike. Each vector records this preparation version
+  (`embeddings.prep`, guarded migration), so existing vectors are re-embedded
+  once, within the usual per-run budget.
 
 - `zotvault add` (and approving an alert, and the dashboard's Add) now puts
   the open-access PDF inside the Zotero item. Zotero's local connector runs

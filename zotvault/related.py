@@ -13,6 +13,7 @@ import datetime as _dt
 import json
 import logging
 import math
+import re
 import urllib.error
 import urllib.request
 from array import array
@@ -32,6 +33,11 @@ AUTO_HEADER = (
 )
 
 _MAX_CHARS = 6000
+# Text preparation version stored with each vector. 1 = YAML frontmatter
+# stripped. Raw notes open with ~1 KB of near-identical metadata (model,
+# input_basis, tags), which made the vectors of shortened notes look alike.
+_EMBED_PREP = 1
+_FRONTMATTER_RE = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
 _MIN_CHARS = 750   # give up below this (a note that short should always fit)
 
 
@@ -98,6 +104,11 @@ def _ollama_embed_once(text: str, cfg: Config, timeout: int) -> List[float]:
     return emb
 
 
+def embed_text(raw: str) -> str:
+    """The part of a note that describes the paper: drop the YAML frontmatter."""
+    return _FRONTMATTER_RE.sub("", raw, count=1).strip()
+
+
 def _source_file(cfg: Config, entry: analysis_queue.QueueEntry) -> Optional[Path]:
     if entry.analysis_files:
         return entry.folder / entry.analysis_files[0]
@@ -120,10 +131,10 @@ def refresh(cfg: Config, state: State, budget: Optional[int] = None) -> int:
         mtime = src.stat().st_mtime
         row = state.emb_get(entry.citekey)
         if row is not None and row["model"] == cfg.ollama_embed_model and \
-                (row["src_mtime"] or 0) >= mtime:
+                (row["src_mtime"] or 0) >= mtime and (row["prep"] or 0) == _EMBED_PREP:
             continue
         try:
-            text = src.read_text(encoding="utf-8", errors="replace")
+            text = embed_text(src.read_text(encoding="utf-8", errors="replace"))
             vec = ollama_embed(text, cfg)
         except InputTooLong as exc:
             # This note alone does not fit; skip it and keep going. Until now one
@@ -140,7 +151,7 @@ def refresh(cfg: Config, state: State, budget: Optional[int] = None) -> int:
             state.trace("embed_unavailable", entry.citekey, str(exc)[:200])
             return done
         state.emb_set(entry.citekey, cfg.ollama_embed_model, len(vec),
-                      vec_to_blob(vec), mtime)
+                      vec_to_blob(vec), mtime, prep=_EMBED_PREP)
         done += 1
     if done:
         state.trace("embeddings_refreshed", "", "{} paper(s)".format(done))
