@@ -212,7 +212,10 @@ def _relink_changed_citekeys(items: List[RawItem], known: set, cfg: Config, stat
         if not new or new == old:
             continue
         if not _SAFE_CITEKEY_RE.match(new):
-            state.trace("citekey_invalid", it.item_key, new[:80])
+            mark = "citekey_invalid:{}".format(it.item_id)
+            if state.kv_get(mark) != new:
+                state.kv_set(mark, new)
+                state.trace("citekey_invalid", it.item_key, new[:80])
             continue
         target = note_renderer.note_path_for(cfg.papers_dir, new)
         if not target.exists():

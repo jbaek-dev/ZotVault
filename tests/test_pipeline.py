@@ -423,6 +423,14 @@ class TestCitekeyRelink(unittest.TestCase):
         self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
         self.assertEqual(len(self._traces("citekey_changed_no_note")), 1)  # not every cycle
 
+    def test_unsafe_new_key_is_refused_and_traced_once(self):
+        self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
+        for _ in range(3):
+            self._bump_zotero_db()
+            self._run({"AAA10": "..", "BBB11": "Two2026"})
+        self.assertEqual(self._row("AAA10")["citekey"], "One2026a")
+        self.assertEqual(len(self._traces("citekey_invalid")), 1)
+
     def test_dry_run_changes_nothing(self):
         self._run({"AAA10": "One2026a", "BBB11": "Two2026"})
         self._old_note("One2026")

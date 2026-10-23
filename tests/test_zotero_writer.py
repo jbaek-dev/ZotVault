@@ -169,6 +169,7 @@ class TestPdfAttachAtAdd(unittest.TestCase):
         from zotvault.zotero_writer import add_identifiers
 
         cfg, state = self._cfg_state()
+        self.state = state
         calls = {"saved": None, "sid": None, "upload": None, "resolver": 0}
 
         def fake_save(items, url, timeout=30, session_id=None):
@@ -229,6 +230,8 @@ class TestPdfAttachAtAdd(unittest.TestCase):
         self.assertEqual(results[0]["status"], "added")
         self.assertEqual(results[0]["pdf"], "none")
         self.assertIn("no PDF attached", results[0]["message"])
+        actions = [c.args[0] for c in self.state.trace.call_args_list]
+        self.assertIn("zotero_pdf_none", actions)   # the outcome is in the audit trail
 
     def test_no_pdf_flag_skips_everything(self):
         results, calls, fetch, unpay = self._run(attach_pdf=False)

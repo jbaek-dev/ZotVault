@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0 — Unreleased (PDF lands inside Zotero)
+## 0.10.0 — Unreleased (PDF lands inside Zotero; security fix)
 
 ### Security
 

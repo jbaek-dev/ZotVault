@@ -608,6 +608,8 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                     else:
                         res.update(pdf="none", message="saved to Zotero; no PDF attached ({}) -- {}".format(
                             pdf_note, _NO_PDF_HINT))
+                        state.trace("zotero_pdf_none", norm,
+                                    "{}; Zotero's resolver found none either".format(pdf_note)[:200])
         except Exception as exc:
             res.update(status="error", message=str(exc)[:300])
         results.append(res)
