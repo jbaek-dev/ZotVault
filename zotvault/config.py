@@ -204,8 +204,8 @@ class Config:
     enrich_every_hours: int = 24
     enrich_budget_per_run: int = 40
     embed_budget_per_run: int = 30
-    related_threshold: float = 0.75
-    synthesis_threshold: float = 0.70
+    related_threshold: float = 0.85
+    synthesis_threshold: float = 0.80
     synthesis_min_cluster: int = 4
     # annotations sync (v0.8) — edit-safe marker blocks
     annotations_enabled: bool = True

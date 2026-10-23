@@ -37,6 +37,12 @@
   shortened notes look alike. Each vector records this preparation version
   (`embeddings.prep`, guarded migration), so existing vectors are re-embedded
   once, within the usual per-run budget.
+- Default similarity thresholds raised: `related_threshold` 0.75 -> 0.85,
+  `synthesis_threshold` 0.70 -> 0.80 (`[features]`). With every note embedded,
+  the old values let nearly every pair through in a single-field library
+  (Related listed all papers; Synthesis made one 171-paper cluster). The new
+  values were calibrated on one 296-paper library (random-pair median 0.71,
+  p90 0.82); a broad library may want them lower.
 
 - `zotvault add` (and approving an alert, and the dashboard's Add) now puts
   the open-access PDF inside the Zotero item. Zotero's local connector runs
