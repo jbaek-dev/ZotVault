@@ -33,8 +33,9 @@
 
 **Read-only toward Zotero.** Reads copy `zotero.sqlite` (+wal/journal) to a
 temp dir and open read-only — safe while Zotero runs. Writes go through
-Zotero's *own* connector endpoint (`/connector/saveItems`), so Zotero manages
-its DB itself. Citekeys come live from Better BibTeX JSON-RPC (fallback:
+Zotero's *own* connector endpoints (`/connector/saveItems`, then
+`/connector/saveAttachment` for the PDF of an item saved in the same
+session), so Zotero manages its DB and `storage/` itself. Citekeys come live from Better BibTeX JSON-RPC (fallback:
 `Citation Key:` in Extra). ZotVault never touches `storage/`.
 
 **Vault contract.** A paper note is created once and never rewritten outside

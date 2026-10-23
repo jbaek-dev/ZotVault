@@ -14,7 +14,7 @@ from zotvault.zotero_reader import ZoteroReader
 
 
 def _decorrupted_vault_hint(path_str: str) -> str:
-    """Best-effort detection of the pre-v0.9.8 `zotvault init` bug: a pasted,
+    """Best-effort detection of the pre-0.10.0 `zotvault init` bug: a pasted,
     shell-escaped path (space/tilde preceded by ``\\``) had its backslashes
     folded into ``/`` by `_toml_str()`, producing a similar-looking but
     nonexistent path (``Mobile/ Documents``, ``iCloud/~md``). If undoing

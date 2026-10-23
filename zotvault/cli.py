@@ -92,7 +92,7 @@ def _clean_pasted_path(raw: str) -> str:
     left alone they survive into the stored value, and _toml_str()'s
     (intentional, Windows-path-normalizing) backslash -> forward-slash
     conversion then turns them into a similar-looking but nonexistent path
-    (``Mobile/ Documents``, ``iCloud/~md``) — see the v0.9.8 vault-path bug.
+    (``Mobile/ Documents``, ``iCloud/~md``) — see the 0.9.7 vault-path bug (fixed in 0.10.0).
     Windows paths use backslash as the real separator, so this is a no-op
     there.
     """

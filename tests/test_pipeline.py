@@ -92,7 +92,10 @@ class TestPipelineE2E(unittest.TestCase):
         self.td.cleanup()
 
     def _run(self, citekeys):
-        with mock.patch("zotvault.zotero_reader.ZoteroReader.bbt_citekeys", return_value=citekeys):
+        # zotero_alive is mocked too: with no citekeys the pipeline pings Zotero
+        # to word its message, and a test must not reach a real Zotero.
+        with mock.patch("zotvault.zotero_reader.ZoteroReader.bbt_citekeys", return_value=citekeys), \
+             mock.patch("zotvault.zotero_reader.ZoteroReader.zotero_alive", return_value=False):
             state = State(self.cfg.state_db)
             try:
                 return run_once(self.cfg, state)
@@ -296,8 +299,12 @@ class TestZoteroOnlyMode(unittest.TestCase):
         state.close()
 
     def test_doctor_verdict_ignores_vault(self):
+        import urllib.error
+
         from zotvault.health import checks
-        out = checks(self.cfg)
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("offline (test)")):
+            out = checks(self.cfg)
         vault_rows = [c for c in out if c[0].startswith("vault")]
         self.assertEqual(len(vault_rows), 1)
         self.assertIn("(optional", vault_rows[0][0])

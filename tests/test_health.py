@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -10,7 +11,11 @@ from zotvault.health import _decorrupted_vault_hint, checks
 
 class TestHealthChecks(unittest.TestCase):
     def test_structure_and_graceful_failures(self):
-        out = checks(Config())  # nothing configured/running -> must not raise
+        # nothing configured/running -> must not raise. Network is cut so the
+        # result does not depend on a Zotero/Ollama running on this machine.
+        with mock.patch("urllib.request.urlopen",
+                        side_effect=urllib.error.URLError("offline (test)")):
+            out = checks(Config())
         self.assertGreater(len(out), 5)
         for name, ok, detail in out:
             self.assertIsInstance(name, str)
@@ -42,7 +47,7 @@ class TestCleanPastedPath(unittest.TestCase):
     shell, so a pasted, already-escaped path arrives with those backslashes
     still in it — left alone, _toml_str()'s Windows-path-normalizing
     backslash->slash conversion turns them into a similar-looking but
-    nonexistent path (the reported v0.9.8 bug)."""
+    nonexistent path (the bug reported against 0.9.7, fixed in 0.10.0)."""
 
     def test_unescapes_space_and_tilde(self):
         raw = r"/Users/x/Library/Mobile\ Documents/iCloud\~md\~obsidian/My\ Second\ Brain"

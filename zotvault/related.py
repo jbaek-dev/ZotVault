@@ -82,7 +82,7 @@ def ollama_embed(text: str, cfg: Config, timeout: int = 60) -> List[float]:
             if "context length" not in body:
                 raise
             if n <= _MIN_CHARS:
-                raise InputTooLong(body[:200])
+                raise InputTooLong(body[:200]) from exc
             n = max(_MIN_CHARS, n // 2)
 
 

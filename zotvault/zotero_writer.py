@@ -568,7 +568,7 @@ def add_identifiers(identifiers: List[str], cfg: Config, state: State,
                 results.append(res)
                 continue
             # PDFs never travel inside the saveItems payload: the local connector
-            # runs that call in ATTACHMENT_MODE_IGNORE (confirmed v0.9.8 in
+            # runs that call in ATTACHMENT_MODE_IGNORE (confirmed 2026-08 in
             # Zotero's debug log), so any `attachments` entry is discarded.
             # The browser connector gets its PDF in by a second call in the
             # same save session (/connector/saveAttachment); so do we.
